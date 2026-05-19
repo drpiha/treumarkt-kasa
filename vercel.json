@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "prisma db push --skip-generate --accept-data-loss || echo 'db push skipped (DATABASE_URL not set yet)'",
+  "installCommand": "npm install",
+  "framework": null,
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "@vercel/node@5.1.16"
+    }
+  }
+}

@@ -1,0 +1,1473 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Treumarkt · Kasa</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#ecfdf5', 500:'#10b981', 600:'#059669', 700:'#047857' }
+          },
+          spacing: { 'card-h': '8rem' },
+          fontFamily: { sans: ['system-ui','-apple-system','Segoe UI','Roboto','sans-serif'] }
+        }
+      }
+    };
+  </script>
+  <style>
+    html, body { background: #f4f4f5; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; }
+    * { -webkit-user-select: none; user-select: none; }
+    input, textarea { -webkit-user-select: text; user-select: text; }
+    /* long-press fill bar */
+    .fill {
+      position: absolute; left: 0; bottom: 0; height: 4px; width: 0;
+      background: linear-gradient(90deg, #10b981, #34d399);
+      border-bottom-left-radius: 1rem; border-bottom-right-radius: 1rem;
+      pointer-events: none;
+    }
+    /* sale confirm overlay */
+    @keyframes pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+    .sale-burst { animation: pop 700ms ease-out forwards; }
+    /* hide scrollbars on filter strip */
+    .no-bar::-webkit-scrollbar { display: none; }
+    .no-bar { -ms-overflow-style: none; scrollbar-width: none; }
+    /* toast */
+    @keyframes slideUp { from { transform: translateY(120%); } to { transform: translateY(0); } }
+    .toast { animation: slideUp 280ms ease-out forwards; }
+    /* card press feedback */
+    .card-press {
+      transition: transform 100ms ease;
+      touch-action: manipulation;   /* daha geniş tarayıcı destegi, scroll engellenmez */
+      -webkit-touch-callout: none;
+      cursor: pointer;
+    }
+    .card-press:active { transform: scale(0.97); }
+    .card-press.is-armed { box-shadow: 0 0 0 3px rgba(16,185,129,0.35) inset; }
+  </style>
+</head>
+<body class="text-zinc-900 antialiased">
+  <main id="app" class="max-w-screen-md mx-auto pb-32">
+    <!-- Header (not sticky on purpose) -->
+    <header class="flex items-center justify-between px-4 pt-5 pb-3">
+      <div class="flex items-center gap-2">
+        <div class="w-9 h-9 rounded-xl bg-zinc-900 text-white grid place-items-center font-bold">T</div>
+        <div>
+          <div class="font-semibold leading-tight">Treumarkt Kasa</div>
+          <div class="text-xs text-zinc-500" id="sub-status">yerel mod</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="view-toggle" class="px-3 py-2 rounded-xl bg-white shadow-sm text-sm font-medium border border-zinc-200">
+          <span data-view="cards">☷ Liste</span>
+        </button>
+        <button id="open-settings" class="w-10 h-10 rounded-xl bg-white shadow-sm border border-zinc-200 grid place-items-center" aria-label="Ayarlar">
+          <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Filter strip -->
+    <div class="px-4">
+      <div id="filter-strip" class="flex gap-2 overflow-x-auto no-bar -mx-1 px-1">
+        <button data-period="today"  class="period-btn px-4 py-2 rounded-xl bg-white border border-zinc-200 text-sm font-medium whitespace-nowrap">Bugün</button>
+        <button data-period="week"   class="period-btn px-4 py-2 rounded-xl bg-white border border-zinc-200 text-sm font-medium whitespace-nowrap">Bu Hafta</button>
+        <button data-period="month"  class="period-btn px-4 py-2 rounded-xl bg-white border border-zinc-200 text-sm font-medium whitespace-nowrap">Bu Ay</button>
+        <button data-period="all"    class="period-btn px-4 py-2 rounded-xl bg-white border border-zinc-200 text-sm font-medium whitespace-nowrap">Tümü</button>
+        <button data-period="custom" class="period-btn px-4 py-2 rounded-xl bg-white border border-zinc-200 text-sm font-medium whitespace-nowrap">Özel ↓</button>
+      </div>
+      <div id="custom-range" class="hidden mt-2 flex items-center gap-2">
+        <input type="date" id="from-date" class="flex-1 px-3 py-2 rounded-xl bg-white border border-zinc-200 text-sm" />
+        <span class="text-zinc-400">→</span>
+        <input type="date" id="to-date"   class="flex-1 px-3 py-2 rounded-xl bg-white border border-zinc-200 text-sm" />
+      </div>
+    </div>
+
+    <!-- Summary panel -->
+    <section class="px-4 mt-4">
+      <div class="rounded-2xl bg-zinc-900 text-white p-4 shadow-sm">
+        <div class="flex items-baseline justify-between">
+          <span class="text-xs text-zinc-400 uppercase tracking-wide" id="period-label">Bugün</span>
+          <span class="text-xs text-zinc-400" id="period-stats">0 satış · 0 ürün çeşidi</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <div class="text-xs text-zinc-400">Ciro</div>
+            <div class="text-2xl font-semibold" id="kpi-revenue">€0,00</div>
+          </div>
+          <div>
+            <div class="text-xs text-zinc-400">Maliyet</div>
+            <div class="text-2xl font-semibold text-zinc-300" id="kpi-cost">€0,00</div>
+          </div>
+          <div>
+            <div class="text-xs text-zinc-400">Gider</div>
+            <div class="text-xl font-medium text-rose-300" id="kpi-expenses">€0,00</div>
+          </div>
+          <div>
+            <div class="text-xs text-zinc-400">KDV %7 (tahmini)</div>
+            <div class="text-xl font-medium text-amber-300" id="kpi-vat">€0,00</div>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-white/10">
+          <div class="flex items-baseline justify-between">
+            <span class="text-sm text-zinc-300">Net Kâr</span>
+            <span class="text-2xl font-bold text-emerald-300" id="kpi-profit">€0,00</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Recent sales strip (always visible after first sale) -->
+    <section id="recent-sales-section" class="px-4 mt-3 hidden">
+      <div class="flex items-baseline justify-between mb-1.5">
+        <span class="text-[11px] uppercase tracking-wide text-zinc-500 font-medium">Son satışlar</span>
+        <button id="recent-sales-more" class="text-[11px] text-emerald-700 font-medium hidden">tümü →</button>
+      </div>
+      <div id="recent-sales-strip" class="flex gap-2 overflow-x-auto no-bar -mx-1 px-1 pb-1"></div>
+    </section>
+
+    <!-- Product views -->
+    <section class="mt-5" id="view-host" data-view="cards">
+      <!-- CARDS VIEW -->
+      <div id="cards-view" class="px-4">
+        <div id="cards-grid" class="grid grid-cols-2 gap-x-10 gap-y-4"></div>
+      </div>
+      <!-- LIST VIEW -->
+      <div id="list-view" class="hidden px-2">
+        <div class="px-2 flex items-center justify-between mb-3">
+          <span class="text-[11px] text-zinc-500 uppercase tracking-wide">Sıra · alış · satış · stok · sat</span>
+          <button id="open-newproduct" class="px-3 py-1.5 rounded-xl bg-emerald-600 active:bg-emerald-700 text-white text-sm font-semibold shadow-sm">+ Yeni Ürün</button>
+        </div>
+        <div id="list-rows" class="divide-y divide-zinc-200 bg-white rounded-2xl overflow-hidden border border-zinc-200"></div>
+        <button id="save-bulk" class="hidden w-full mt-3 bg-emerald-600 text-white py-3 rounded-xl font-semibold shadow-sm">Toplu Kaydet</button>
+      </div>
+    </section>
+
+    <!-- Business Intelligence accordion (below products) -->
+    <section class="px-4 mt-6">
+      <button id="bi-toggle" class="w-full flex items-center justify-between px-4 py-3 bg-white rounded-2xl border border-zinc-200 shadow-sm">
+        <span class="flex items-center gap-2 font-medium text-sm">
+          <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18M7 14l4-4 4 4 5-6"/></svg>
+          İş Analitiği
+        </span>
+        <svg id="bi-chevron" viewBox="0 0 24 24" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div id="bi-body" class="hidden mt-3 space-y-3">
+        <!-- Target progress -->
+        <div id="bi-target" class="bg-white rounded-2xl border border-zinc-200 p-4 hidden">
+          <div class="flex items-baseline justify-between mb-2">
+            <span class="text-sm font-medium text-zinc-700">Aylık Kâr Hedefi</span>
+            <span class="text-xs text-zinc-500" id="bi-target-meta"></span>
+          </div>
+          <div class="h-3 bg-zinc-100 rounded-full overflow-hidden">
+            <div id="bi-target-bar" class="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all duration-700 ease-out" style="width:0%"></div>
+          </div>
+          <div class="flex items-center justify-between mt-1.5">
+            <span class="text-xs text-zinc-500" id="bi-target-achieved">€0,00</span>
+            <span class="text-xs text-zinc-500" id="bi-target-target">€0,00</span>
+          </div>
+        </div>
+        <!-- Category breakdown -->
+        <div class="bg-white rounded-2xl border border-zinc-200 p-4">
+          <div class="flex items-baseline justify-between mb-3">
+            <span class="text-sm font-medium text-zinc-700">Kategori Bazlı Kâr</span>
+            <span class="text-xs text-zinc-500" id="bi-cat-meta">—</span>
+          </div>
+          <div id="bi-categories" class="space-y-3">
+            <div class="text-xs text-zinc-400 text-center py-2">Bu dönemde satış yok</div>
+          </div>
+        </div>
+        <!-- Asset valuation -->
+        <div class="bg-white rounded-2xl border border-zinc-200 p-4">
+          <div class="flex items-baseline justify-between mb-3">
+            <span class="text-sm font-medium text-zinc-700">Depo Varlığı</span>
+            <span class="text-xs text-zinc-500" id="bi-asset-meta">0 adet</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <div class="text-[10px] uppercase text-zinc-400">Maliyet</div>
+              <div class="font-semibold text-zinc-700" id="bi-asset-cost">€0,00</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase text-zinc-400">Pot. Satış</div>
+              <div class="font-semibold text-zinc-700" id="bi-asset-sell">€0,00</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase text-zinc-400">Pot. Kâr</div>
+              <div class="font-semibold text-emerald-700" id="bi-asset-profit">€0,00</div>
+            </div>
+          </div>
+          <p class="text-[11px] text-zinc-400 mt-3">"Elimizdeki Stok" değerlerini liste görünümünden girin.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Expenses -->
+    <section class="px-4 mt-8">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-sm font-semibold text-zinc-700 uppercase tracking-wide">Giderler</h2>
+        <button id="add-expense" class="text-emerald-700 text-sm font-medium">+ Ekle</button>
+      </div>
+      <div id="expenses-list" class="bg-white rounded-2xl border border-zinc-200 divide-y divide-zinc-100"></div>
+    </section>
+  </main>
+
+  <!-- Floating action button -->
+  <button id="fab-sell-log" class="fixed bottom-5 right-5 z-30 w-14 h-14 rounded-full bg-zinc-900 text-white shadow-lg grid place-items-center" aria-label="Son satışlar">
+    <svg viewBox="0 0 24 24" class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h12"/></svg>
+  </button>
+
+  <!-- Sheet: Quick Sell -->
+  <div id="quicksell-sheet" class="fixed inset-0 z-40 hidden">
+    <div class="absolute inset-0 bg-black/40" data-close></div>
+    <div class="absolute inset-x-0 bottom-0 bg-white rounded-t-3xl p-5 pb-7 max-w-screen-md mx-auto">
+      <div class="mx-auto w-10 h-1.5 bg-zinc-300 rounded-full mb-4"></div>
+      <div id="qs-info"></div>
+      <button id="qs-sell" class="w-full py-5 mt-5 bg-emerald-600 active:bg-emerald-700 text-white rounded-2xl text-xl font-bold shadow-sm">Sat 1 adet · €0,00</button>
+      <div class="flex gap-2 mt-3">
+        <button data-qs-add="1"  class="qs-chip flex-1 py-3 rounded-xl bg-zinc-100 active:bg-zinc-200 font-semibold">+1</button>
+        <button data-qs-add="5"  class="qs-chip flex-1 py-3 rounded-xl bg-zinc-100 active:bg-zinc-200 font-semibold">+5</button>
+        <button data-qs-add="10" class="qs-chip flex-1 py-3 rounded-xl bg-zinc-100 active:bg-zinc-200 font-semibold">+10</button>
+        <button id="qs-reset" class="qs-chip flex-1 py-3 rounded-xl bg-zinc-100 active:bg-zinc-200 font-semibold text-zinc-500">Sıfırla</button>
+      </div>
+      <button class="w-full mt-4 py-3 rounded-2xl text-zinc-600 font-medium" data-close>İptal</button>
+    </div>
+  </div>
+
+  <!-- Sheet: New Product -->
+  <div id="newproduct-sheet" class="fixed inset-0 z-40 hidden">
+    <div class="absolute inset-0 bg-black/40" data-close></div>
+    <div class="absolute inset-x-0 bottom-0 bg-white rounded-t-3xl p-5 pb-7 max-w-screen-md mx-auto max-h-[90vh] overflow-y-auto">
+      <div class="mx-auto w-10 h-1.5 bg-zinc-300 rounded-full mb-4"></div>
+      <h3 class="text-lg font-semibold mb-4">Yeni Ürün</h3>
+      <div class="space-y-3">
+        <label class="block">
+          <span class="text-xs text-zinc-500">Ad</span>
+          <input id="np-name" type="text" placeholder="Örn: BAL 500g" class="w-full mt-1 px-3 py-2.5 rounded-xl border border-zinc-300 focus:border-emerald-500 outline-none" />
+        </label>
+        <label class="block">
+          <span class="text-xs text-zinc-500">Kategori</span>
+          <input id="np-category" type="text" list="np-category-list" placeholder="Örn: Macunlar & Pekmezler" class="w-full mt-1 px-3 py-2.5 rounded-xl border border-zinc-300 focus:border-emerald-500 outline-none" />
+          <datalist id="np-category-list"></datalist>
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-xs text-zinc-500">Alış €</span>
+            <input id="np-buy" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" class="w-full mt-1 px-3 py-2.5 rounded-xl border border-zinc-300 focus:border-emerald-500 outline-none" />
+          </label>
+          <label class="block">
+            <span class="text-xs text-zinc-500">Satış €</span>
+            <input id="np-sell" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" class="w-full mt-1 px-3 py-2.5 rounded-xl border border-zinc-300 focus:border-emerald-500 outline-none" />
+          </label>
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <label class="block col-span-2">
+            <span class="text-xs text-zinc-500">Ağırlık / Miktar</span>
+            <input id="np-weight" type="number" inputmode="decimal" step="1" min="0" placeholder="500" class="w-full mt-1 px-3 py-2.5 rounded-xl border border-zinc-300 focus:border-emerald-500 outline-none" />
+          </label>
+          <label class="block">
+            <span class="text-xs text-zinc-500">Birim</span>
+            <select id="np-unit" class="w-full mt-1 px-3 py-2.5 rounded-xl border border-zinc-300 focus:border-emerald-500 outline-none bg-white">
+              <option value="g">g</option>
+              <option value="ml">ml</option>
+              <option value="adet">adet</option>
+            </select>
+          </label>
+        </div>
+        <label class="block">
+          <span class="text-xs text-zinc-500">Sıra (küçük rakam = başta)</span>
+          <input id="np-order" type="number" inputmode="numeric" step="1" min="0" class="w-full mt-1 px-3 py-2.5 rounded-xl border border-zinc-300 focus:border-emerald-500 outline-none" />
+        </label>
+      </div>
+      <button id="np-save" class="w-full mt-5 py-3.5 bg-emerald-600 active:bg-emerald-700 text-white rounded-2xl text-lg font-bold shadow-sm">Kaydet</button>
+      <button class="w-full mt-2 py-3 rounded-2xl text-zinc-600 font-medium" data-close>İptal</button>
+    </div>
+  </div>
+
+  <!-- Sheet: Settings -->
+  <div id="settings-sheet" class="fixed inset-0 z-40 hidden">
+    <div class="absolute inset-0 bg-black/40" data-close></div>
+    <div class="absolute inset-x-0 bottom-0 bg-white rounded-t-3xl p-5 max-w-screen-md mx-auto">
+      <div class="mx-auto w-10 h-1.5 bg-zinc-300 rounded-full mb-4"></div>
+      <h3 class="text-lg font-semibold mb-3">Ayarlar</h3>
+      <div class="grid grid-cols-2 gap-3">
+        <button id="btn-export" class="p-4 rounded-xl bg-zinc-50 border border-zinc-200 text-left">
+          <div class="font-medium">JSON Dışa Aktar</div>
+          <div class="text-xs text-zinc-500">Tüm veriyi indir</div>
+        </button>
+        <label class="p-4 rounded-xl bg-zinc-50 border border-zinc-200 text-left cursor-pointer">
+          <div class="font-medium">JSON İçeri Aktar</div>
+          <div class="text-xs text-zinc-500">Yedek dosyayı yükle</div>
+          <input id="btn-import" type="file" accept="application/json" class="hidden" />
+        </label>
+        <button id="btn-target" class="p-4 rounded-xl bg-zinc-50 border border-zinc-200 text-left">
+          <div class="font-medium">Aylık Kâr Hedefi</div>
+          <div class="text-xs text-zinc-500" id="target-summary">tanımlı değil</div>
+        </button>
+        <button id="btn-reset" class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-left text-rose-700">
+          <div class="font-medium">Kasayı Sıfırla</div>
+          <div class="text-xs text-rose-500">Satış+gider+sayaç</div>
+        </button>
+      </div>
+      <button class="w-full mt-4 py-3 rounded-xl bg-zinc-900 text-white font-medium" data-close>Kapat</button>
+    </div>
+  </div>
+
+  <!-- Sheet: Sales log -->
+  <div id="log-sheet" class="fixed inset-0 z-40 hidden">
+    <div class="absolute inset-0 bg-black/40" data-close></div>
+    <div class="absolute inset-x-0 bottom-0 bg-white rounded-t-3xl p-5 max-w-screen-md mx-auto max-h-[80vh] flex flex-col">
+      <div class="mx-auto w-10 h-1.5 bg-zinc-300 rounded-full mb-4"></div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold">Son Satışlar</h3>
+        <span class="text-xs text-zinc-500" id="log-count"></span>
+      </div>
+      <div id="log-list" class="overflow-y-auto divide-y divide-zinc-100 -mx-5 px-5"></div>
+      <button class="w-full mt-4 py-3 rounded-xl bg-zinc-900 text-white font-medium" data-close>Kapat</button>
+    </div>
+  </div>
+
+  <!-- Login overlay (sadece bulut modunda APP_PASSWORD set ise göstereilir) -->
+  <div id="login-overlay" class="fixed inset-0 z-50 bg-zinc-900/95 hidden grid place-items-center p-6">
+    <div class="bg-white rounded-3xl p-7 w-full max-w-sm shadow-2xl">
+      <div class="text-center mb-5">
+        <div class="text-4xl mb-2">🔒</div>
+        <h2 class="text-xl font-bold">Kasa Şifresi</h2>
+        <p class="text-xs text-zinc-500 mt-1">Bulut senkronu için şifre girin</p>
+      </div>
+      <input id="login-password" type="password" placeholder="••••••" autocomplete="current-password"
+        class="w-full px-4 py-3 rounded-xl border border-zinc-300 focus:border-emerald-500 outline-none text-lg text-center tracking-widest" />
+      <button id="login-submit" class="w-full mt-3 py-3.5 bg-emerald-600 active:bg-emerald-700 text-white rounded-xl font-bold">GİR</button>
+      <p id="login-error" class="hidden text-sm text-rose-600 text-center mt-3">Şifre yanlış</p>
+      <button id="login-skip" class="w-full mt-3 py-2 text-zinc-500 text-xs">Bulut olmadan devam et (sadece bu cihaz)</button>
+    </div>
+  </div>
+
+  <!-- Toast host -->
+  <div id="toasts" class="fixed bottom-24 left-0 right-0 z-50 flex flex-col items-center gap-2 px-4 pointer-events-none"></div>
+
+  <script type="module">
+    /* =====================================================================
+     * Treumarkt Kasa — single-file SPA
+     * Faz 1+2: state, seed, kart grid, basılı-tut satış, filtreler, özet,
+     *         giderler, export/import/reset.
+     * Faz 3 (Supabase) ve Faz 4-5-6 sonraki adımlarda eklenecek.
+     * ===================================================================== */
+
+    /* -------------------- CONFIG -------------------- */
+    const VAT_RATE = 0.07;
+    const STORAGE_KEY = 'treumarkt_state_v1';
+    const AUTH_TOKEN_KEY = 'treumarkt_auth_token';
+
+    /* -------------------- CLOUD SYNC (Neon via /api/*) --------------------
+     * Strateji: offline-first.
+     *   - Tüm mutasyonlar önce LocalStorage + ekran, sonra arka planda API'ye
+     *   - API erişilemezse sessizce LocalStorage modunda devam
+     *   - 401 → login overlay
+     */
+    const api = {
+      base: '/api',
+      enabled: false,
+      token() { return localStorage.getItem(AUTH_TOKEN_KEY) || ''; },
+      setToken(v) {
+        if (v) localStorage.setItem(AUTH_TOKEN_KEY, v);
+        else   localStorage.removeItem(AUTH_TOKEN_KEY);
+      },
+      async call(path, opts = {}) {
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + this.token(),
+          ...(opts.headers || {}),
+        };
+        const res = await fetch(this.base + path, { ...opts, headers });
+        if (res.status === 401) { showLoginOverlay(); throw new Error('unauthorized'); }
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          throw new Error(`${res.status}: ${body.slice(0,120)}`);
+        }
+        return res.status === 204 ? null : res.json();
+      },
+      // Background fire-and-log; UI zaten optimistic update almış
+      bg(promise, label) {
+        if (!this.enabled) return;
+        promise.catch(err => {
+          if (err.message === 'unauthorized') return;
+          console.warn('[cloud sync fail]', label, err.message);
+        });
+      },
+    };
+
+    async function bootCloudSync() {
+      if (!location.protocol.startsWith('http')) return; // file:// modu
+      try {
+        const remote = await api.call('/state');
+        api.enabled = true;
+        const haveLocalProducts = state.products.length > 0;
+        const haveRemoteProducts = (remote.products || []).length > 0;
+
+        if (haveRemoteProducts) {
+          // Bulut otoritedir
+          applyRemoteState(remote);
+          renderAll();
+        } else if (haveLocalProducts) {
+          // İlk kez bağlanan cihazın elinde data var, bulut boş — yedek yükle
+          toast('☁ Cihazdaki yedek buluta yükleniyor...', { duration: 3000 });
+          await pushLocalToCloud();
+          // Re-fetch to confirm + sync IDs
+          const after = await api.call('/state');
+          applyRemoteState(after);
+          renderAll();
+          toast('☁ Yedekleme tamam');
+        } else {
+          // İkisi de boş — seed
+          await api.call('/seed', { method: 'POST' });
+          const seeded = await api.call('/state');
+          applyRemoteState(seeded);
+          renderAll();
+        }
+      } catch (err) {
+        if (err.message === 'unauthorized') return;
+        // API yok ya da DB henüz set edilmemiş → LocalStorage-only mod
+        console.info('[cloud] mevcut değil, sadece bu cihazda çalışıyoruz:', err.message);
+        api.enabled = false;
+      }
+    }
+
+    function applyRemoteState(r) {
+      if (r.products)    state.products    = r.products;
+      if (r.inventory)   state.inventory   = r.inventory;
+      if (r.stockOnHand) state.stockOnHand = r.stockOnHand;
+      if (r.sales)       state.sales       = r.sales;
+      if (r.expenses)    state.expenses    = r.expenses;
+      if (r.targets)     state.targets     = r.targets;
+      persist();
+    }
+
+    async function pushLocalToCloud() {
+      // Products + inventory (POST tek tek; her biri inventory satırını da kuruyor)
+      for (const p of state.products) {
+        try { await api.call('/products', { method: 'POST', body: JSON.stringify(p) }); } catch (_) {}
+      }
+      // stockOnHand bulk
+      if (Object.keys(state.stockOnHand || {}).length) {
+        try { await api.call('/stock-on-hand', { method: 'PATCH', body: JSON.stringify(state.stockOnHand) }); } catch (_) {}
+      }
+      // Sales — bulk
+      if (state.sales.length) {
+        try { await api.call('/sales', { method: 'POST', body: JSON.stringify(state.sales) }); } catch (_) {}
+      }
+      // Expenses
+      for (const e of state.expenses) {
+        try { await api.call('/expenses', { method: 'POST', body: JSON.stringify(e) }); } catch (_) {}
+      }
+      // Targets
+      for (const [month, amount] of Object.entries(state.targets || {})) {
+        try { await api.call('/targets?month=' + encodeURIComponent(month), { method: 'PUT', body: JSON.stringify({ amount }) }); } catch (_) {}
+      }
+    }
+
+    function showLoginOverlay() {
+      el('#login-overlay').classList.remove('hidden');
+      setTimeout(() => el('#login-password').focus(), 100);
+    }
+    function hideLoginOverlay() { el('#login-overlay').classList.add('hidden'); }
+    const fmtEUR = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+    const fmtDate = new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    // Tap-cancel eşiği: bu kadar piksel hareket ederse tap satış sayfasını açmaz (kullanıcı scroll yapıyordur)
+    const TAP_CANCEL_PX = 12;
+    const uid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now();
+
+    /* -------------------- SEED DATA -------------------- */
+    const SEED = [
+      [10,  'TEKLİ',                                  1.65, 4.00,  'Paketler',             1,    'adet'],
+      [20,  '3\'LÜ',                                  4.86, 10.00, 'Paketler',             3,    'adet'],
+      [30,  'BROMELAIN SURUBU 250 ml',                8.56, 15.00, 'Özler & Şuruplar',     250,  'ml'],
+      [40,  'KARADUT',                                7.50, 15.00, 'Özler & Şuruplar',     500,  'ml'],
+      [50,  'ANANAS SİRKESİ 500 ml',                  5.67, 13.00, 'Sirkeler',             500,  'ml'],
+      [60,  'ANDIZ PEKMEZİ 400g',                     4.82, 10.00, 'Macunlar & Pekmezler', 400,  'g'],
+      [70,  'DETOX SİRKESİ 250 ml',                   6.15, 13.00, 'Sirkeler',             250,  'ml'],
+      [80,  'ALIÇ SİRKESİ 500 ml',                    5.35, 13.00, 'Sirkeler',             500,  'ml'],
+      [90,  'GÜL SİRKESİ 500 ml',                     5.35, 13.00, 'Sirkeler',             500,  'ml'],
+      [100, 'ÇAM SİRKESİ 500 ml',                     5.35, 13.00, 'Sirkeler',             500,  'ml'],
+      [110, 'ELMA SİRKESİ 500 ml',                    5.35, 13.00, 'Sirkeler',             500,  'ml'],
+      [120, 'SANDALOZ SAKIZLI ELMA SİRKESİ 500 ml',   5.35, 13.00, 'Sirkeler',             500,  'ml'],
+      [130, 'ORMAN MEYVE ÖZ',                         7.50, 15.00, 'Özler & Şuruplar',     350,  'ml'],
+      [140, 'KAYISI ÖZ',                              5.50, 12.50, 'Özler & Şuruplar',     350,  'ml'],
+      [150, 'TROPİKAL ÖZ',                            7.50, 15.00, 'Özler & Şuruplar',     350,  'ml'],
+      [160, 'Servi Kozalağı Şurubu 650 ml',           8.56, 15.00, 'Özler & Şuruplar',     650,  'ml'],
+      [170, 'HURMA ÖZÜ 350 ml',                       4.92, 12.50, 'Özler & Şuruplar',     350,  'ml'],
+      [180, 'PEKTAMIN PEKMEZ 250 ml',                 8.03, 15.00, 'Macunlar & Pekmezler', 250,  'ml'],
+      [190, 'KUDRET NARI MACUNU 240 g',               8.56, 15.00, 'Macunlar & Pekmezler', 240,  'g'],
+      [200, 'KEÇİBOYNUZU PEKMEZ',                     7.50, 12.50, 'Macunlar & Pekmezler', 400,  'g'],
+      [210, 'KIDS MACUNU',                            8.50, 15.00, 'Macunlar & Pekmezler', 240,  'g'],
+      [220, 'PROPOLİS MACUNU',                        8.50, 15.00, 'Macunlar & Pekmezler', 240,  'g'],
+      [230, 'ZENCEFİL MACUNU',                        8.50, 15.00, 'Macunlar & Pekmezler', 240,  'g'],
+      [240, 'KOZOLAK MACUNU',                         8.50, 15.00, 'Macunlar & Pekmezler', 240,  'g'],
+      [250, 'KOLLOGEN SİRUP',                         8.50, 15.00, 'Özler & Şuruplar',     250,  'ml'],
+      [260, 'OSMANLI ŞERBETİ',                        7.50, 15.00, 'Özler & Şuruplar',     500,  'ml'],
+      [270, 'KIDS ŞURUP',                             8.00, 15.00, 'Özler & Şuruplar',     150,  'ml'],
+      [280, 'ÇÖREK OTU YAĞI ŞİŞE',                    8.56, 15.00, 'Özler & Şuruplar',     250,  'ml'],
+      [290, 'ÇÖREK OTU YAĞI 90 Kapsül',               9.52, 18.00, 'Gummies & Kapsüller',  90,   'adet'],
+      [300, 'KUDRET NARI YAGI 90 Kapsül',             9.10, 18.00, 'Gummies & Kapsüller',  90,   'adet'],
+      [310, 'BAL KABAGI CEKIRDEGI YAGI 90 Kapsül',    9.52, 18.00, 'Gummies & Kapsüller',  90,   'adet'],
+      [320, 'HAIR & NAIL GUMMIES',                    9.52, 20.00, 'Gummies & Kapsüller',  60,   'adet'],
+      [330, 'SKIN GUMMIES',                          10.49, 20.00, 'Gummies & Kapsüller',  60,   'adet'],
+      [340, 'MULTIVITAMIN KIDS GUMMIES',             10.49, 20.00, 'Gummies & Kapsüller',  60,   'adet'],
+      [350, 'YEŞİL ÇAY',                              5.50, 10.00, 'Diğer',                100,  'g'],
+      [360, 'KAHVE',                                  9.90, 20.00, 'Diğer',                250,  'g'],
+    ].map(([order, name, buy, sell, category, weight, weight_unit]) => ({
+      id: 'p' + order, name, buy, sell, order, category, weight, weight_unit
+    }));
+
+    /* -------------------- STATE -------------------- */
+    const state = {
+      products: [],          // {id,name,buy,sell,order,category,weight,weight_unit}
+      inventory: {},         // {productId: totalSold}
+      stockOnHand: {},       // {productId: elimizdeki stok adedi}
+      sales: [],             // {id,productId,productName,buyPrice,sellPrice,ts}
+      expenses: [],          // {id,description,amount,ts}
+      targets: {},           // {YYYY-MM: amount}
+      ui: { period: 'today', view: 'cards', custom: { from: null, to: null }, biOpen: false }
+    };
+
+    function loadFromLocal() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
+        const data = JSON.parse(raw);
+        Object.assign(state, {
+          products: data.products || [],
+          inventory: data.inventory || {},
+          stockOnHand: data.stockOnHand || {},
+          sales: data.sales || [],
+          expenses: data.expenses || [],
+          targets: data.targets || {},
+        });
+        if (data.ui) Object.assign(state.ui, data.ui);
+        return true;
+      } catch (e) { console.warn('localStorage load failed', e); return false; }
+    }
+    function persist() {
+      const snap = {
+        products: state.products,
+        inventory: state.inventory,
+        stockOnHand: state.stockOnHand,
+        sales: state.sales,
+        expenses: state.expenses,
+        targets: state.targets,
+        ui: state.ui,
+        savedAt: new Date().toISOString(),
+      };
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snap)); } catch (e) {}
+    }
+    function ensureSeed() {
+      if (state.products.length === 0) {
+        state.products = SEED.map(p => ({ ...p }));
+        state.inventory = Object.fromEntries(SEED.map(p => [p.id, 0]));
+        persist();
+      }
+    }
+
+    /* -------------------- CALC -------------------- */
+    const calc = {
+      startOfDay(d = new Date()) { const x = new Date(d); x.setHours(0,0,0,0); return x; },
+      startOfWeek(d = new Date()) {
+        const x = this.startOfDay(d);
+        const dow = (x.getDay() + 6) % 7; // Monday=0
+        x.setDate(x.getDate() - dow);
+        return x;
+      },
+      startOfMonth(d = new Date()) { const x = this.startOfDay(d); x.setDate(1); return x; },
+      periodRange(period, custom) {
+        const now = new Date();
+        if (period === 'today')  return [this.startOfDay(now).getTime(),  Infinity];
+        if (period === 'week')   return [this.startOfWeek(now).getTime(), Infinity];
+        if (period === 'month')  return [this.startOfMonth(now).getTime(),Infinity];
+        if (period === 'all')    return [0, Infinity];
+        if (period === 'custom') {
+          const a = custom?.from ? new Date(custom.from).setHours(0,0,0,0) : 0;
+          const b = custom?.to   ? new Date(custom.to).setHours(23,59,59,999) : Infinity;
+          return [a, b];
+        }
+        return [0, Infinity];
+      },
+      filterByPeriod(items, period, custom) {
+        const [a, b] = this.periodRange(period, custom);
+        return items.filter(x => {
+          const t = new Date(x.ts).getTime();
+          return t >= a && t <= b;
+        });
+      },
+      periodSummary(sales, expenses, period, custom) {
+        const s = this.filterByPeriod(sales, period, custom);
+        const e = this.filterByPeriod(expenses, period, custom);
+        const revenue = s.reduce((a,x) => a + Number(x.sellPrice || 0), 0);
+        const cost    = s.reduce((a,x) => a + Number(x.buyPrice  || 0), 0);
+        const expensesTotal = e.reduce((a,x) => a + Number(x.amount || 0), 0);
+        const grossProfit = revenue - cost;
+        const netProfit = grossProfit - expensesTotal;
+        const vat = revenue * VAT_RATE;
+        const items = s.length;
+        const variety = new Set(s.map(x => x.productId)).size;
+        return { revenue, cost, expensesTotal, grossProfit, netProfit, vat, items, variety, sales: s, expenses: e };
+      },
+      perKgOrLiter(price, weight, unit) {
+        if (!weight || unit === 'adet') return null;
+        return (Number(price) * 1000) / Number(weight);
+      },
+      categoryBreakdown(sales) {
+        const map = new Map();
+        sales.forEach(s => {
+          const m = map.get(s.category || '—') || { category: s.category || '—', revenue: 0, profit: 0, count: 0 };
+          m.revenue += Number(s.sellPrice || 0);
+          m.profit  += Number(s.sellPrice || 0) - Number(s.buyPrice || 0);
+          m.count++;
+          map.set(m.category, m);
+        });
+        const arr = [...map.values()];
+        const totalRev = arr.reduce((a,x) => a + x.revenue, 0) || 1;
+        return arr.map(x => ({ ...x, share: x.revenue / totalRev })).sort((a,b) => b.revenue - a.revenue);
+      },
+      targetProgress(netProfit, target) {
+        if (!target || target <= 0) return null;
+        const pct = Math.max(0, Math.min(1, netProfit / target));
+        return { pct, remaining: Math.max(0, target - netProfit), target, achieved: netProfit };
+      },
+      assetValue(products, stockOnHand) {
+        let costValue = 0, sellValue = 0, units = 0;
+        products.forEach(p => {
+          const q = Number(stockOnHand[p.id] || 0);
+          if (q <= 0) return;
+          costValue += q * Number(p.buy);
+          sellValue += q * Number(p.sell);
+          units += q;
+        });
+        return { costValue, sellValue, latentProfit: sellValue - costValue, units };
+      },
+    };
+
+    /* -------------------- RENDER -------------------- */
+    const el = (sel) => document.querySelector(sel);
+    const els = (sel) => [...document.querySelectorAll(sel)];
+
+    function renderAll() {
+      renderFilterButtons();
+      renderSummary();    // also calls renderBI()
+      renderCards();
+      renderList();
+      renderExpenses();
+      renderTargetLabel();
+    }
+
+    function renderBI() {
+      // open/close
+      el('#bi-body').classList.toggle('hidden', !state.ui.biOpen);
+      el('#bi-chevron').style.transform = state.ui.biOpen ? 'rotate(180deg)' : 'rotate(0)';
+      if (!state.ui.biOpen) return;
+
+      const productById = Object.fromEntries(state.products.map(p => [p.id, p]));
+      const enrichedSales = state.sales.map(s => ({ ...s, category: productById[s.productId]?.category || '—' }));
+      const sum = calc.periodSummary(enrichedSales, state.expenses, state.ui.period, state.ui.custom);
+
+      // --- target progress (always for current month) ---
+      const tKey = monthKey();
+      const target = state.targets[tKey];
+      const monthSum = calc.periodSummary(enrichedSales, state.expenses, 'month');
+      const tp = calc.targetProgress(monthSum.netProfit, target);
+      const tBox = el('#bi-target');
+      if (tp) {
+        tBox.classList.remove('hidden');
+        el('#bi-target-bar').style.width = (tp.pct * 100).toFixed(1) + '%';
+        el('#bi-target-meta').textContent = (tp.pct * 100).toFixed(0) + '%';
+        el('#bi-target-achieved').textContent = fmtEUR.format(tp.achieved) + ' kazanıldı';
+        el('#bi-target-target').textContent = 'hedef ' + fmtEUR.format(tp.target);
+      } else {
+        tBox.classList.add('hidden');
+      }
+
+      // --- category breakdown ---
+      const cats = calc.categoryBreakdown(sum.sales);
+      const maxRev = Math.max(...cats.map(c => c.revenue), 1);
+      el('#bi-cat-meta').textContent = labelForPeriod(state.ui.period);
+      el('#bi-categories').innerHTML = cats.length === 0
+        ? `<div class="text-xs text-zinc-400 text-center py-2">Bu dönemde satış yok</div>`
+        : cats.map(c => {
+            const pct = (c.revenue / maxRev) * 100;
+            return `
+              <div>
+                <div class="flex items-baseline justify-between mb-1">
+                  <span class="text-xs font-medium text-zinc-700">${escapeHtml(c.category)}</span>
+                  <span class="text-xs text-zinc-500">${c.count}× · kâr ${fmtEUR.format(c.profit)}</span>
+                </div>
+                <div class="h-2 bg-zinc-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-zinc-700 to-zinc-900 transition-all duration-500" style="width:${pct}%"></div>
+                </div>
+                <div class="text-[10px] text-zinc-400 mt-0.5">${fmtEUR.format(c.revenue)} · ciro payı %${(c.share * 100).toFixed(1)}</div>
+              </div>`;
+          }).join('');
+
+      // --- asset value ---
+      const av = calc.assetValue(state.products, state.stockOnHand);
+      el('#bi-asset-meta').textContent = `${av.units} adet`;
+      el('#bi-asset-cost').textContent   = fmtEUR.format(av.costValue);
+      el('#bi-asset-sell').textContent   = fmtEUR.format(av.sellValue);
+      el('#bi-asset-profit').textContent = fmtEUR.format(av.latentProfit);
+    }
+
+    function renderFilterButtons() {
+      els('.period-btn').forEach(b => {
+        const on = b.dataset.period === state.ui.period;
+        b.className = 'period-btn px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap border ' +
+          (on ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white border-zinc-200 text-zinc-700');
+      });
+      el('#custom-range').classList.toggle('hidden', state.ui.period !== 'custom');
+      if (state.ui.custom.from) el('#from-date').value = state.ui.custom.from;
+      if (state.ui.custom.to)   el('#to-date').value = state.ui.custom.to;
+    }
+
+    function renderSummary() {
+      // attach category lookup to sales for breakdown
+      const productById = Object.fromEntries(state.products.map(p => [p.id, p]));
+      const enrichedSales = state.sales.map(s => ({ ...s, category: productById[s.productId]?.category || '—' }));
+      const sum = calc.periodSummary(enrichedSales, state.expenses, state.ui.period, state.ui.custom);
+      el('#period-label').textContent = labelForPeriod(state.ui.period);
+      el('#period-stats').textContent = `${sum.items} satış · ${sum.variety} ürün çeşidi`;
+      el('#kpi-revenue').textContent  = fmtEUR.format(sum.revenue);
+      el('#kpi-cost').textContent     = fmtEUR.format(sum.cost);
+      el('#kpi-expenses').textContent = fmtEUR.format(sum.expensesTotal);
+      el('#kpi-vat').textContent      = fmtEUR.format(sum.vat);
+      el('#kpi-profit').textContent   = fmtEUR.format(sum.netProfit);
+      el('#kpi-profit').className = 'text-2xl font-bold ' + (sum.netProfit >= 0 ? 'text-emerald-300' : 'text-rose-300');
+      // BI panel shares period state; keep them in sync.
+      renderBI();
+      renderRecentSales();
+    }
+
+    // Son N satışı şerit olarak ekranın üst kısmında göster — × ile tek tıkla geri al
+    const RECENT_N = 5;
+    function renderRecentSales() {
+      const list = [...state.sales].sort((a,b) => new Date(b.ts) - new Date(a.ts));
+      const section = el('#recent-sales-section');
+      if (list.length === 0) { section.classList.add('hidden'); return; }
+      section.classList.remove('hidden');
+      const recent = list.slice(0, RECENT_N);
+      const strip = el('#recent-sales-strip');
+      strip.innerHTML = recent.map(s => `
+        <div class="flex items-center gap-1.5 bg-white border border-zinc-200 rounded-full pl-3 pr-1 py-1 shadow-sm flex-shrink-0" data-rs="${s.id}">
+          <span class="text-xs font-medium text-zinc-800 max-w-[140px] truncate">${escapeHtml(s.productName)}</span>
+          <span class="text-xs font-semibold text-emerald-700">${fmtEUR.format(s.sellPrice)}</span>
+          <button data-rs-undo="${s.id}" class="w-6 h-6 rounded-full bg-rose-50 active:bg-rose-100 text-rose-600 grid place-items-center" aria-label="Geri al">
+            <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      `).join('');
+      el('#recent-sales-more').classList.toggle('hidden', list.length <= RECENT_N);
+    }
+
+    function labelForPeriod(p) {
+      return { today:'Bugün', week:'Bu Hafta', month:'Bu Ay', all:'Tüm Zamanlar', custom:'Özel Aralık' }[p] || '';
+    }
+
+    function renderCards() {
+      const host = el('#cards-grid');
+      const sorted = [...state.products].sort((a,b) => a.order - b.order);
+      host.innerHTML = sorted.map(p => {
+        const sold = state.inventory[p.id] || 0;
+        const perKg = calc.perKgOrLiter(p.sell, p.weight, p.weight_unit);
+        const unitLbl = p.weight_unit === 'adet' ? `${p.weight} adet` : `${p.weight} ${p.weight_unit}`;
+        const subPerKg = perKg ? `· ${fmtEUR.format(perKg)}/${p.weight_unit === 'g' ? 'kg' : 'L'}` : '';
+        return `
+          <div class="relative bg-white rounded-2xl border border-zinc-200 shadow-sm h-card-h overflow-hidden card-press" data-id="${p.id}">
+            <div class="p-3 h-full flex flex-col justify-between">
+              <div>
+                <div class="text-[11px] uppercase tracking-wide text-zinc-400">${escapeHtml(p.category)}</div>
+                <div class="font-semibold text-sm leading-tight mt-0.5 line-clamp-2">${escapeHtml(p.name)}</div>
+              </div>
+              <div class="flex items-baseline justify-between">
+                <div>
+                  <div class="text-emerald-700 font-bold">${fmtEUR.format(p.sell)}</div>
+                  <div class="text-[10px] text-zinc-400">${unitLbl} ${subPerKg}</div>
+                </div>
+                <div class="text-right">
+                  <div class="text-[10px] text-zinc-400">satılan</div>
+                  <div class="text-sm font-medium">${sold}</div>
+                </div>
+              </div>
+            </div>
+            <div class="fill"></div>
+          </div>`;
+      }).join('');
+      host.querySelectorAll('[data-id]').forEach(card => bindCardInteractions(
+        card,
+        () => openQuickSell(card.dataset.id),
+      ));
+    }
+
+    function renderList() {
+      const host = el('#list-rows');
+      const sorted = [...state.products].sort((a,b) => a.order - b.order);
+      host.innerHTML = sorted.map(p => {
+        const sold = state.inventory[p.id] || 0;
+        const onHand = state.stockOnHand[p.id] || 0;
+        const perKgSell = calc.perKgOrLiter(p.sell, p.weight, p.weight_unit);
+        const perKgLbl = perKgSell ? `· ${fmtEUR.format(perKgSell)}/${p.weight_unit === 'g' ? 'kg' : 'L'}` : '';
+        return `
+          <div class="p-3 grid grid-cols-12 gap-2 items-center" data-row="${p.id}">
+            <div class="col-span-12 sm:col-span-4">
+              <div class="text-[11px] uppercase text-zinc-400">${escapeHtml(p.category)}</div>
+              <div class="font-medium text-sm leading-tight">${escapeHtml(p.name)}</div>
+              <div class="text-[11px] text-zinc-400">${p.weight} ${p.weight_unit} · satılan: ${sold} ${perKgLbl}</div>
+            </div>
+            <label class="col-span-2 sm:col-span-1 block">
+              <span class="text-[10px] text-zinc-400">Sıra</span>
+              <input type="number" inputmode="numeric" step="1" min="0" value="${p.order}" data-edit="order" data-original="${p.order}"
+                class="w-full px-2 py-1.5 rounded-lg border border-zinc-200 text-sm" />
+            </label>
+            <label class="col-span-3 sm:col-span-2 block">
+              <span class="text-[10px] text-zinc-400">Alış €</span>
+              <input type="number" inputmode="decimal" step="0.01" min="0" value="${p.buy}" data-edit="buy" data-original="${p.buy}"
+                class="w-full px-2 py-1.5 rounded-lg border border-zinc-200 text-sm" />
+            </label>
+            <label class="col-span-3 sm:col-span-2 block">
+              <span class="text-[10px] text-zinc-400">Satış €</span>
+              <input type="number" inputmode="decimal" step="0.01" min="0" value="${p.sell}" data-edit="sell" data-original="${p.sell}"
+                class="w-full px-2 py-1.5 rounded-lg border border-zinc-200 text-sm" />
+            </label>
+            <label class="col-span-2 sm:col-span-2 block">
+              <span class="text-[10px] text-zinc-400">Stok</span>
+              <input type="number" inputmode="numeric" step="1" min="0" value="${onHand}" data-edit="onhand" data-original="${onHand}"
+                class="w-full px-2 py-1.5 rounded-lg border border-zinc-200 text-sm" />
+            </label>
+            <label class="col-span-2 sm:col-span-1 block">
+              <span class="text-[10px] text-zinc-400">Sat</span>
+              <input type="number" inputmode="numeric" step="1" min="0" value="0" data-edit="qty" data-original="0"
+                class="w-full px-2 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-sm font-semibold" />
+            </label>
+          </div>`;
+      }).join('');
+      refreshBulkSaveButton();
+    }
+
+    // Tüm input değişikliklerini izle, butonu dinamik göster/gizle + metnini güncelle.
+    function refreshBulkSaveButton() {
+      const inputs = [...el('#list-rows').querySelectorAll('input[data-edit]')];
+      const changed = inputs.filter(i => String(i.value) !== String(i.dataset.original));
+      const counts = { qty: 0, buy: 0, sell: 0, onhand: 0, order: 0 };
+      let totalSales = 0;
+      changed.forEach(i => {
+        const t = i.dataset.edit;
+        counts[t] = (counts[t] || 0) + 1;
+        if (t === 'qty') totalSales += Number(i.value) || 0;
+      });
+      const anyChange = changed.length > 0;
+      const btn = el('#save-bulk');
+      btn.classList.toggle('hidden', !anyChange);
+      if (anyChange) {
+        const parts = [];
+        if (totalSales)       parts.push(`${totalSales} satış`);
+        if (counts.buy)       parts.push(`${counts.buy} alış`);
+        if (counts.sell)      parts.push(`${counts.sell} satış €`);
+        if (counts.onhand)    parts.push(`${counts.onhand} stok`);
+        if (counts.order)     parts.push(`${counts.order} sıra`);
+        btn.textContent = 'Kaydet · ' + parts.join(' · ');
+      }
+    }
+
+    el('#list-rows').addEventListener('input', refreshBulkSaveButton);
+
+    function renderExpenses() {
+      const host = el('#expenses-list');
+      const list = [...state.expenses].sort((a,b) => new Date(b.ts) - new Date(a.ts)).slice(0, 8);
+      if (list.length === 0) {
+        host.innerHTML = `<div class="p-4 text-sm text-zinc-400 text-center">Henüz gider eklenmedi</div>`;
+        return;
+      }
+      host.innerHTML = list.map(e => `
+        <div class="p-3 flex items-center justify-between">
+          <div>
+            <div class="text-sm font-medium">${escapeHtml(e.description || '—')}</div>
+            <div class="text-[11px] text-zinc-400">${fmtDate.format(new Date(e.ts))}</div>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="font-semibold text-rose-600">−${fmtEUR.format(e.amount)}</span>
+            <button class="text-zinc-400 text-xs" data-del-expense="${e.id}">sil</button>
+          </div>
+        </div>`).join('');
+      host.querySelectorAll('[data-del-expense]').forEach(b => b.addEventListener('click', () => {
+        const id = b.dataset.delExpense;
+        state.expenses = state.expenses.filter(x => x.id !== id);
+        persist(); renderExpenses(); renderSummary();
+        api.bg(api.call('/expenses?id=' + encodeURIComponent(id), { method: 'DELETE' }), 'expense-del');
+      }));
+    }
+
+    function renderTargetLabel() {
+      const key = monthKey();
+      const t = state.targets[key];
+      el('#target-summary').textContent = t ? `${labelForPeriod('month')}: ${fmtEUR.format(t)}` : 'tanımlı değil';
+    }
+
+    function monthKey(d = new Date()) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+
+    /* -------------------- INTERACTIONS -------------------- */
+    /* Kart etkileşimi (sade):
+     *   - Tek dokunuş → "Hızlı Sat" sayfasını açar (sat onayı orada)
+     *   - Parmağı kaydırırsa (>12 px) → sayfa açılmaz (kullanıcı scroll yapıyor)
+     */
+    function bindCardInteractions(card, onTap) {
+      let startX = 0, startY = 0, moved = false, active = false;
+      const begin = (x, y) => { startX = x; startY = y; moved = false; active = true; };
+      const move  = (x, y) => {
+        if (!active) return;
+        if (Math.hypot(x - startX, y - startY) > TAP_CANCEL_PX) moved = true;
+      };
+      const end = () => {
+        const wasActive = active, wasMoved = moved;
+        active = false; moved = false;
+        if (wasActive && !wasMoved) onTap();
+      };
+      if (window.PointerEvent) {
+        card.addEventListener('pointerdown', (e) => {
+          if (e.pointerType === 'mouse' && e.button !== 0) return;
+          begin(e.clientX, e.clientY);
+        });
+        card.addEventListener('pointermove', (e) => move(e.clientX, e.clientY));
+        card.addEventListener('pointerup',     end);
+        card.addEventListener('pointercancel', () => { active = false; });
+      } else {
+        card.addEventListener('touchstart', (e) => { const t = e.touches[0]; begin(t.clientX, t.clientY); }, { passive: true });
+        card.addEventListener('touchmove',  (e) => { const t = e.touches[0]; move(t.clientX, t.clientY); }, { passive: true });
+        card.addEventListener('touchend',   end);
+        card.addEventListener('touchcancel',() => { active = false; });
+        card.addEventListener('mousedown', (e) => { if (e.button === 0) begin(e.clientX, e.clientY); });
+        card.addEventListener('mousemove', (e) => move(e.clientX, e.clientY));
+        card.addEventListener('mouseup',   end);
+        card.addEventListener('mouseleave',() => { active = false; });
+      }
+      card.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    function sellOne(productId, cardEl) {
+      const p = state.products.find(x => x.id === productId);
+      if (!p) return;
+      const sale = {
+        id: uid(),
+        productId: p.id,
+        productName: p.name,
+        buyPrice: Number(p.buy),
+        sellPrice: Number(p.sell),
+        ts: new Date().toISOString(),
+      };
+      const stockWasDecremented = state.stockOnHand[p.id] > 0;
+      sale._stockWasDecremented = stockWasDecremented;
+      state.sales.push(sale);
+      state.inventory[p.id] = (state.inventory[p.id] || 0) + 1;
+      if (stockWasDecremented) state.stockOnHand[p.id] -= 1;
+      persist();
+      api.bg(api.call('/sales', { method: 'POST', body: JSON.stringify([sale]) }), 'sell-one');
+      flashSaleBurst(cardEl);
+      // partial re-render
+      const soldEl = cardEl.querySelector('.text-sm.font-medium');
+      if (soldEl) soldEl.textContent = state.inventory[p.id];
+      renderSummary();
+      toastWithUndo(`✓ ${p.name} · ${fmtEUR.format(p.sell)}`, () => undoSale(sale.id, cardEl));
+    }
+
+    function undoSale(saleId, cardEl) {
+      const removed = removeSaleFromState(saleId);
+      if (!removed) return;
+      persist();
+      if (cardEl) {
+        const soldEl = cardEl.querySelector('.text-sm.font-medium');
+        if (soldEl) soldEl.textContent = state.inventory[removed.productId] || 0;
+      }
+      renderSummary();
+      toast(`↺ Satış geri alındı: ${removed.productName}`);
+    }
+
+    function removeSaleFromState(saleId) {
+      const idx = state.sales.findIndex(s => s.id === saleId);
+      if (idx === -1) return null;
+      const [removed] = state.sales.splice(idx, 1);
+      if (state.inventory[removed.productId] > 0) state.inventory[removed.productId] -= 1;
+      if (removed._stockWasDecremented) {
+        state.stockOnHand[removed.productId] = (state.stockOnHand[removed.productId] || 0) + 1;
+      }
+      api.bg(api.call('/sales?id=' + encodeURIComponent(saleId), { method: 'DELETE' }), 'sale-del');
+      return removed;
+    }
+
+    function undoMultipleSales(saleIds) {
+      let count = 0;
+      saleIds.forEach(id => { if (removeSaleFromState(id)) count++; });
+      persist(); renderAll();
+      toast(`↺ ${count} satış geri alındı`);
+    }
+
+    /* ----- Quick-Sell flow (tek dokunuş → adet seç → SAT) -----
+     * UI: SAT butonu "Sat N adet · €X" yazar, altta +1/+5/+10/Sıfırla çipleri
+     */
+    const qs = { product: null, qty: 1 };
+    function openQuickSell(productId) {
+      const p = state.products.find(x => x.id === productId);
+      if (!p) return;
+      qs.product = p; qs.qty = 1;
+      renderQs();
+      openSheet('#quicksell-sheet');
+    }
+    function qsAdd(n) {
+      if (!qs.product) return;
+      qs.qty = Math.max(1, qs.qty + n);
+      renderQs();
+    }
+    function qsResetQty() {
+      qs.qty = 1; renderQs();
+    }
+    function renderQs() {
+      if (!qs.product) return;
+      const total = qs.product.sell * qs.qty;
+      el('#qs-info').innerHTML = `
+        <div class="text-xs uppercase tracking-wide text-zinc-400">${escapeHtml(qs.product.category)}</div>
+        <div class="text-lg font-bold leading-tight mt-1">${escapeHtml(qs.product.name)}</div>
+        <div class="text-sm text-zinc-500 mt-1">${fmtEUR.format(qs.product.sell)} / adet · ${qs.product.weight} ${qs.product.weight_unit}</div>`;
+      el('#qs-sell').textContent = `Sat ${qs.qty} adet · ${fmtEUR.format(total)}`;
+    }
+    function commitQuickSell() {
+      if (!qs.product) return;
+      const p = qs.product, q = qs.qty;
+      const ids = [];
+      const newSales = [];
+      const nowIso = new Date().toISOString();
+      for (let i = 0; i < q; i++) {
+        const stockWasDecremented = state.stockOnHand[p.id] > 0;
+        const sale = {
+          id: uid(), productId: p.id, productName: p.name,
+          buyPrice: Number(p.buy), sellPrice: Number(p.sell),
+          ts: nowIso, _stockWasDecremented: stockWasDecremented,
+        };
+        state.sales.push(sale);
+        state.inventory[p.id] = (state.inventory[p.id] || 0) + 1;
+        if (stockWasDecremented) state.stockOnHand[p.id] -= 1;
+        ids.push(sale.id);
+        newSales.push(sale);
+      }
+      persist();
+      api.bg(api.call('/sales', { method: 'POST', body: JSON.stringify(newSales) }), 'quick-sell');
+      try { navigator.vibrate && navigator.vibrate(50); } catch (_) {}
+      const name = p.name, total = p.sell * q;
+      qs.product = null; qs.qty = 1;
+      closeSheet(el('#quicksell-sheet'));
+      renderAll();
+      toastWithUndo(`✓ ${q}× ${name} · ${fmtEUR.format(total)}`, () => undoMultipleSales(ids));
+    }
+
+    function flashSaleBurst(card) {
+      const burst = document.createElement('div');
+      burst.className = 'sale-burst absolute inset-0 grid place-items-center bg-emerald-500/90 text-white text-3xl font-bold rounded-2xl';
+      burst.textContent = '✓';
+      card.appendChild(burst);
+      setTimeout(() => burst.remove(), 700);
+    }
+
+    function toast(message, opts = {}) {
+      const t = document.createElement('div');
+      t.className = 'toast pointer-events-auto px-4 py-2 rounded-full text-sm font-medium shadow-lg ' +
+        (opts.error ? 'bg-rose-600 text-white' : 'bg-zinc-900 text-white');
+      t.textContent = message;
+      el('#toasts').appendChild(t);
+      setTimeout(() => t.remove(), opts.duration || 1800);
+    }
+
+    function toastWithUndo(message, onUndo) {
+      const t = document.createElement('div');
+      t.className = 'toast pointer-events-auto flex items-center gap-3 pl-4 pr-1 py-1.5 rounded-full text-sm font-medium shadow-lg bg-zinc-900 text-white';
+      t.innerHTML = `<span></span><button class="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-full text-xs font-semibold">Geri al</button>`;
+      t.firstElementChild.textContent = message;
+      let undone = false;
+      t.querySelector('button').addEventListener('click', () => {
+        if (undone) return;
+        undone = true;
+        onUndo();
+        t.remove();
+      });
+      el('#toasts').appendChild(t);
+      setTimeout(() => t.remove(), 4000);
+    }
+
+    /* -------------------- EVENTS -------------------- */
+    // BI accordion toggle
+    el('#bi-toggle').addEventListener('click', () => {
+      state.ui.biOpen = !state.ui.biOpen;
+      persist(); renderBI();
+    });
+
+    // Son satışlar şeridi — × ile geri al
+    el('#recent-sales-strip').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-rs-undo]');
+      if (!btn) return;
+      const id = btn.dataset.rsUndo;
+      const sale = state.sales.find(s => s.id === id);
+      if (!sale) return;
+      if (!confirm(`Bu satış geri alınsın mı?\n\n${sale.productName} · ${fmtEUR.format(sale.sellPrice)}`)) return;
+      removeSaleFromState(id);
+      persist();
+      renderAll();
+      toast(`↺ ${sale.productName} silindi`);
+    });
+
+    // "Tümü" butonu — log sheet'i aç (fab ile aynı)
+    el('#recent-sales-more').addEventListener('click', () => el('#fab-sell-log').click());
+
+    // Yeni Ürün — sheet aç + datalist'i doldur
+    el('#open-newproduct').addEventListener('click', openNewProduct);
+    el('#np-save').addEventListener('click', commitNewProduct);
+
+    function openNewProduct() {
+      // Kategori önerileri
+      const cats = [...new Set(state.products.map(p => p.category))].sort();
+      el('#np-category-list').innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">`).join('');
+      // Otomatik default'lar
+      el('#np-name').value = '';
+      el('#np-category').value = '';
+      el('#np-buy').value = '';
+      el('#np-sell').value = '';
+      el('#np-weight').value = '';
+      el('#np-unit').value = 'g';
+      const maxOrder = state.products.reduce((m, p) => Math.max(m, p.order || 0), 0);
+      el('#np-order').value = maxOrder + 10;
+      openSheet('#newproduct-sheet');
+      setTimeout(() => el('#np-name').focus(), 80);
+    }
+
+    function commitNewProduct() {
+      const name = el('#np-name').value.trim();
+      const category = el('#np-category').value.trim() || 'Diğer';
+      const buy = Number(el('#np-buy').value);
+      const sell = Number(el('#np-sell').value);
+      const weight = Number(el('#np-weight').value);
+      const weight_unit = el('#np-unit').value;
+      const order = Math.floor(Number(el('#np-order').value)) || (state.products.length * 10 + 10);
+
+      if (!name) { toast('Ürün adı gerekli', { error: true }); return; }
+      if (!isFinite(buy) || buy < 0) { toast('Geçersiz alış fiyatı', { error: true }); return; }
+      if (!isFinite(sell) || sell < 0) { toast('Geçersiz satış fiyatı', { error: true }); return; }
+      if (!isFinite(weight) || weight <= 0) { toast('Geçersiz ağırlık', { error: true }); return; }
+      if (!['g','ml','adet'].includes(weight_unit)) { toast('Birim g/ml/adet olmalı', { error: true }); return; }
+
+      const product = { id: uid(), name, buy, sell, order, category, weight, weight_unit };
+      state.products.push(product);
+      state.inventory[product.id] = 0;
+      state.stockOnHand[product.id] = 0;
+      persist();
+      closeSheet(el('#newproduct-sheet'));
+      renderAll();
+      api.bg(api.call('/products', { method: 'POST', body: JSON.stringify(product) }), 'product-add');
+      toast(`✓ ${name} eklendi`);
+    }
+
+    // Quick-sell sheet — chip-based adet seçimi
+    el('#quicksell-sheet').addEventListener('click', (e) => {
+      const addBtn = e.target.closest('[data-qs-add]');
+      if (addBtn) { qsAdd(Number(addBtn.dataset.qsAdd) || 1); return; }
+      if (e.target.closest('#qs-reset')) { qsResetQty(); return; }
+    });
+    el('#qs-sell').addEventListener('click', commitQuickSell);
+
+    // Period buttons
+    el('#filter-strip').addEventListener('click', (e) => {
+      const btn = e.target.closest('.period-btn');
+      if (!btn) return;
+      state.ui.period = btn.dataset.period;
+      persist(); renderFilterButtons(); renderSummary();
+    });
+    ['from-date','to-date'].forEach(id => el('#' + id).addEventListener('change', () => {
+      state.ui.custom.from = el('#from-date').value || null;
+      state.ui.custom.to   = el('#to-date').value || null;
+      persist(); renderSummary();
+    }));
+
+    // View toggle
+    el('#view-toggle').addEventListener('click', () => {
+      const next = state.ui.view === 'cards' ? 'list' : 'cards';
+      state.ui.view = next;
+      el('#view-host').dataset.view = next;
+      el('#cards-view').classList.toggle('hidden', next !== 'cards');
+      el('#list-view').classList.toggle('hidden', next !== 'list');
+      el('#view-toggle').innerHTML = `<span>${next === 'cards' ? '☷ Liste' : '▦ Kartlar'}</span>`;
+      persist();
+    });
+
+    // Add expense
+    el('#add-expense').addEventListener('click', () => {
+      const description = prompt('Gider açıklaması:')?.trim();
+      if (!description) return;
+      const raw = prompt('Tutar (€):', '0')?.replace(',', '.');
+      const amount = Number(raw);
+      if (!isFinite(amount) || amount <= 0) { toast('Geçersiz tutar', { error: true }); return; }
+      const exp = { id: uid(), description, amount, ts: new Date().toISOString() };
+      state.expenses.push(exp);
+      persist(); renderExpenses(); renderSummary();
+      api.bg(api.call('/expenses', { method: 'POST', body: JSON.stringify(exp) }), 'expense-add');
+    });
+
+    // Sales log sheet
+    el('#fab-sell-log').addEventListener('click', () => {
+      const productById = Object.fromEntries(state.products.map(p => [p.id, p]));
+      const enriched = state.sales.map(s => ({ ...s, category: productById[s.productId]?.category || '—' }));
+      const filtered = calc.filterByPeriod(enriched, state.ui.period, state.ui.custom)
+        .sort((a,b) => new Date(b.ts) - new Date(a.ts));
+      el('#log-count').textContent = `${filtered.length} kayıt · ${labelForPeriod(state.ui.period)}`;
+      el('#log-list').innerHTML = filtered.length === 0
+        ? `<div class="p-6 text-center text-zinc-400 text-sm">Bu dönemde satış yok</div>`
+        : filtered.slice(0, 300).map(s => `
+            <div class="py-3 flex items-center gap-3" data-sale-row="${s.id}">
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate">${escapeHtml(s.productName)}</div>
+                <div class="text-[11px] text-zinc-400">${fmtDate.format(new Date(s.ts))}</div>
+              </div>
+              <div class="text-right">
+                <div class="text-sm font-semibold text-emerald-700">${fmtEUR.format(s.sellPrice)}</div>
+                <div class="text-[10px] text-zinc-400">maliyet ${fmtEUR.format(s.buyPrice)}</div>
+              </div>
+              <button data-undo-sale="${s.id}" class="w-10 h-10 rounded-full bg-rose-50 active:bg-rose-100 text-rose-600 grid place-items-center flex-shrink-0" aria-label="Bu satışı geri al">
+                <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+              </button>
+            </div>
+          `).join('');
+      openSheet('#log-sheet');
+    });
+
+    // Satış log'unda tek tek satış geri al — event delegation
+    el('#log-list').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-undo-sale]');
+      if (!btn) return;
+      const id = btn.dataset.undoSale;
+      const sale = state.sales.find(s => s.id === id);
+      if (!sale) return;
+      if (!confirm(`Bu satış geri alınsın mı?\n\n${sale.productName}\n${fmtEUR.format(sale.sellPrice)} · ${fmtDate.format(new Date(sale.ts))}`)) return;
+      removeSaleFromState(id);
+      persist();
+      // Satırı anında DOM'dan kaldır
+      const row = el('#log-list').querySelector(`[data-sale-row="${id}"]`);
+      if (row) row.remove();
+      renderSummary();        // KPI'lar güncellensin
+      renderCards();          // kart üzerinde 'satılan' sayısı güncellensin
+      renderList();           // liste görünümünde de
+      toast(`↺ ${sale.productName} silindi`);
+    });
+
+    // Settings
+    el('#open-settings').addEventListener('click', () => openSheet('#settings-sheet'));
+    document.body.addEventListener('click', (e) => {
+      if (e.target.matches('[data-close]')) closeSheet(e.target.closest('.fixed.inset-0'));
+    });
+
+    function openSheet(sel) { el(sel).classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
+    function closeSheet(node) { if (!node) return; node.classList.add('hidden'); document.body.style.overflow = ''; }
+
+    // Export
+    el('#btn-export').addEventListener('click', () => {
+      const data = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        products: state.products,
+        inventory: state.inventory,
+        stockOnHand: state.stockOnHand,
+        sales: state.sales,
+        expenses: state.expenses,
+        targets: state.targets,
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `treumarkt-yedek-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('Yedek indirildi');
+    });
+
+    // Import
+    el('#btn-import').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        if (!data || !Array.isArray(data.products)) throw new Error('Geçersiz dosya');
+        if (!confirm('Tüm mevcut verilerin üzerine yazılacak. Devam edilsin mi?')) return;
+        state.products    = data.products;
+        state.inventory   = data.inventory || {};
+        state.stockOnHand = data.stockOnHand || {};
+        state.sales       = data.sales || [];
+        state.expenses    = data.expenses || [];
+        state.targets     = data.targets || {};
+        persist();
+        renderAll();
+        toast('Yedek geri yüklendi');
+      } catch (err) {
+        toast('İçeri aktarma başarısız: ' + err.message, { error: true });
+      } finally {
+        e.target.value = '';
+      }
+    });
+
+    // Target
+    el('#btn-target').addEventListener('click', () => {
+      const key = monthKey();
+      const cur = state.targets[key] || 0;
+      const raw = prompt(`Aylık kâr hedefi (${key}):`, String(cur))?.replace(',', '.');
+      if (raw == null) return;
+      const v = Number(raw);
+      if (!isFinite(v) || v < 0) { toast('Geçersiz hedef', { error: true }); return; }
+      if (v === 0) delete state.targets[key]; else state.targets[key] = v;
+      persist(); renderTargetLabel();
+      if (v === 0) {
+        api.bg(api.call('/targets?month=' + encodeURIComponent(key), { method: 'DELETE' }), 'target-del');
+      } else {
+        api.bg(api.call('/targets?month=' + encodeURIComponent(key), { method: 'PUT', body: JSON.stringify({ amount: v }) }), 'target-set');
+      }
+    });
+
+    // Reset
+    el('#btn-reset').addEventListener('click', () => {
+      const word = prompt('Sıfırlamak için "KASAYI SIFIRLA" yazın:');
+      if (word !== 'KASAYI SIFIRLA') return;
+      state.sales = [];
+      state.expenses = [];
+      state.inventory = Object.fromEntries(state.products.map(p => [p.id, 0]));
+      state.stockOnHand = Object.fromEntries(state.products.map(p => [p.id, 0]));
+      persist();
+      renderAll();
+      api.bg(api.call('/reset', { method: 'POST' }), 'reset');
+      toast('Kasa sıfırlandı (ürünler korundu)');
+    });
+
+    // Bulk save — sıra, fiyat, stok güncelle + adet kadar satış kaydet
+    el('#save-bulk').addEventListener('click', () => {
+      const rows = [...el('#list-rows').querySelectorAll('[data-row]')];
+      let saleCount = 0, priceChanges = 0, stockChanges = 0, orderChanges = 0;
+      const nowIso = new Date().toISOString();
+      const productPatches = [];   // {id, ...changes}
+      const stockUpdates   = {};   // {productId: newQty}
+      const newSales       = [];
+      rows.forEach(row => {
+        const id = row.dataset.row;
+        const p = state.products.find(x => x.id === id);
+        if (!p) return;
+        const order  = Math.max(0, Math.floor(Number(row.querySelector('[data-edit="order"]').value) || 0));
+        const buy    = Number(row.querySelector('[data-edit="buy"]').value);
+        const sell   = Number(row.querySelector('[data-edit="sell"]').value);
+        const onhand = Math.max(0, Math.floor(Number(row.querySelector('[data-edit="onhand"]').value) || 0));
+        const qty    = Math.max(0, Math.floor(Number(row.querySelector('[data-edit="qty"]').value) || 0));
+        const patch = { id };
+        if (isFinite(order) && p.order !== order) { p.order = order; orderChanges++; patch.order = order; }
+        if (isFinite(buy)   && buy  >= 0 && p.buy  !== buy)  { p.buy  = buy;  priceChanges++; patch.buy = buy; }
+        if (isFinite(sell)  && sell >= 0 && p.sell !== sell) { p.sell = sell; priceChanges++; patch.sell = sell; }
+        if (Object.keys(patch).length > 1) productPatches.push(patch);
+        if (state.stockOnHand[p.id] !== onhand) { state.stockOnHand[p.id] = onhand; stockChanges++; stockUpdates[p.id] = onhand; }
+        for (let i = 0; i < qty; i++) {
+          const stockWasDecremented = state.stockOnHand[p.id] > 0;
+          const sale = {
+            id: uid(), productId: p.id, productName: p.name,
+            buyPrice: p.buy, sellPrice: p.sell, ts: nowIso,
+            _stockWasDecremented: stockWasDecremented,
+          };
+          state.sales.push(sale);
+          state.inventory[p.id] = (state.inventory[p.id] || 0) + 1;
+          if (stockWasDecremented) state.stockOnHand[p.id] -= 1;
+          saleCount++;
+          newSales.push(sale);
+        }
+        // sales tükettiyse stok güncellemesini de yansıt
+        if (saleCount && state.stockOnHand[p.id] !== onhand) stockUpdates[p.id] = state.stockOnHand[p.id];
+      });
+      persist();
+      renderAll();
+      // Cloud sync — paralel batch
+      productPatches.forEach(({ id, ...data }) => {
+        api.bg(api.call('/products?id=' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) }), 'bulk-product');
+      });
+      if (Object.keys(stockUpdates).length) {
+        api.bg(api.call('/stock-on-hand', { method: 'PATCH', body: JSON.stringify(stockUpdates) }), 'bulk-stock');
+      }
+      if (newSales.length) {
+        api.bg(api.call('/sales', { method: 'POST', body: JSON.stringify(newSales) }), 'bulk-sales');
+      }
+      const parts = [];
+      if (saleCount)     parts.push(`${saleCount} satış`);
+      if (priceChanges)  parts.push(`${priceChanges} fiyat`);
+      if (stockChanges)  parts.push(`${stockChanges} stok`);
+      if (orderChanges)  parts.push(`${orderChanges} sıra`);
+      toast(parts.length ? parts.join(' · ') + ' güncellendi' : 'Değişiklik yok');
+    });
+
+    /* -------------------- LOGIN OVERLAY EVENTS -------------------- */
+    el('#login-submit').addEventListener('click', async () => {
+      const pwd = el('#login-password').value.trim();
+      if (!pwd) return;
+      api.setToken(pwd);
+      el('#login-error').classList.add('hidden');
+      try {
+        await api.call('/state');
+        hideLoginOverlay();
+        toast('☁ Bulut bağlandı');
+        bootCloudSync();
+      } catch (e) {
+        if (e.message === 'unauthorized') {
+          el('#login-error').classList.remove('hidden');
+          api.setToken('');
+        } else {
+          hideLoginOverlay();
+          toast('Bulut hatası: ' + e.message, { error: true });
+        }
+      }
+    });
+    el('#login-password').addEventListener('keydown', e => { if (e.key === 'Enter') el('#login-submit').click(); });
+    el('#login-skip').addEventListener('click', () => { hideLoginOverlay(); api.setToken(''); });
+
+    /* -------------------- BOOT -------------------- */
+    loadFromLocal();
+    ensureSeed();
+    renderAll();
+    // Bulut senkronu arka planda — başarısız olursa LocalStorage-only modda devam
+    bootCloudSync();
+
+    // Service worker — sadece http(s) altında, file:// üzerinde sessizce atlar
+    // Yeni sürüm yayına çıktığında otomatik algıla → kullanıcıyı bilgilendir → yenile
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      navigator.serviceWorker.register('./sw.js').then(reg => {
+        reg.addEventListener('updatefound', () => {
+          const sw = reg.installing;
+          if (!sw) return;
+          sw.addEventListener('statechange', () => {
+            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+              toast('🔄 Yeni sürüm yüklendi, sayfa yenileniyor…', { duration: 2500 });
+              setTimeout(() => location.reload(), 2200);
+            }
+          });
+        });
+        // Her açılışta yeni sürüm kontrolü tetikle
+        try { reg.update(); } catch (_) {}
+      }).catch(() => {});
+    }
+
+    // Init view state
+    if (state.ui.view === 'list') {
+      el('#view-host').dataset.view = 'list';
+      el('#cards-view').classList.add('hidden');
+      el('#list-view').classList.remove('hidden');
+      el('#view-toggle').innerHTML = `<span>▦ Kartlar</span>`;
+    }
+  </script>
+</body>
+</html>

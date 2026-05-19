@@ -1,0 +1,71 @@
+// Treumarkt Kasa — Prisma schema
+// Single-tenant for now (one shop). Multi-tenant ekleneceğinde tablolara shop_id sütunu + filtre.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Product {
+  id          String     @id
+  name        String
+  buy         Decimal    @db.Decimal(10, 2)
+  sell        Decimal    @db.Decimal(10, 2)
+  order       Int
+  category    String
+  weight      Decimal    @db.Decimal(10, 2)
+  weightUnit  String     @map("weight_unit")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  inventory   Inventory?
+
+  @@index([order])
+  @@map("products")
+}
+
+model Inventory {
+  productId   String  @id @map("product_id")
+  totalSold   Int     @default(0) @map("total_sold")
+  stockOnHand Int     @default(0) @map("stock_on_hand")
+
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("inventory")
+}
+
+model Sale {
+  id                  String   @id
+  productId           String?  @map("product_id")
+  productName         String   @map("product_name")
+  buyPrice            Decimal  @db.Decimal(10, 2) @map("buy_price")
+  sellPrice           Decimal  @db.Decimal(10, 2) @map("sell_price")
+  stockWasDecremented Boolean  @default(false) @map("stock_was_decremented")
+  ts                  DateTime @default(now())
+
+  @@index([ts(sort: Desc)])
+  @@index([productId])
+  @@map("sales")
+}
+
+model Expense {
+  id          String   @id
+  description String
+  amount      Decimal  @db.Decimal(10, 2)
+  ts          DateTime @default(now())
+
+  @@index([ts(sort: Desc)])
+  @@map("expenses")
+}
+
+model Target {
+  month               String  @id // 'YYYY-MM'
+  monthlyProfitTarget Decimal @db.Decimal(10, 2) @map("monthly_profit_target")
+
+  @@map("targets")
+}
