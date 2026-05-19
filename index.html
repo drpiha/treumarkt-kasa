@@ -817,37 +817,38 @@
         const perKgSell = calc.perKgOrLiter(p.sell, p.weight, p.weight_unit);
         const perKgLbl = perKgSell ? `· ${fmtEUR.format(perKgSell)}/${p.weight_unit === 'g' ? 'kg' : 'L'}` : '';
         return `
-          <div class="p-3 grid grid-cols-12 gap-2 items-center" data-row="${p.id}">
-            <div class="col-span-12 sm:col-span-4">
-              <div class="text-[11px] uppercase text-zinc-400">${escapeHtml(p.category)}</div>
-              <div class="font-medium text-sm leading-tight">${escapeHtml(p.name)}</div>
-              <div class="text-[11px] text-zinc-400">${p.weight} ${p.weight_unit} · satılan: ${sold} ${perKgLbl}</div>
+          <div class="p-3 flex items-start gap-2.5" data-row="${p.id}">
+            <!-- BIG ORDER BADGE (auto-saves on change) -->
+            <input type="number" inputmode="numeric" step="1" min="0" value="${p.order}" data-edit="order" data-original="${p.order}"
+              class="w-12 h-12 flex-shrink-0 text-center text-base font-bold rounded-full bg-zinc-100 border-2 border-zinc-200 focus:border-emerald-500 focus:bg-white outline-none"
+              title="Sıra — küçük rakam = ön sıra" />
+            <div class="flex-1 min-w-0">
+              <div class="text-[11px] uppercase text-zinc-400 leading-none">${escapeHtml(p.category)}</div>
+              <div class="font-medium text-sm leading-tight mt-0.5">${escapeHtml(p.name)}</div>
+              <div class="text-[11px] text-zinc-400 mt-0.5">${p.weight} ${p.weight_unit} · satılan: ${sold} ${perKgLbl}</div>
+              <div class="grid grid-cols-4 gap-1.5 mt-2">
+                <label class="block">
+                  <span class="text-[9px] text-zinc-400 uppercase">Alış €</span>
+                  <input type="number" inputmode="decimal" step="0.01" min="0" value="${p.buy}" data-edit="buy" data-original="${p.buy}"
+                    class="w-full mt-0.5 px-1.5 py-1 rounded-md border border-zinc-200 text-sm" />
+                </label>
+                <label class="block">
+                  <span class="text-[9px] text-zinc-400 uppercase">Satış €</span>
+                  <input type="number" inputmode="decimal" step="0.01" min="0" value="${p.sell}" data-edit="sell" data-original="${p.sell}"
+                    class="w-full mt-0.5 px-1.5 py-1 rounded-md border border-zinc-200 text-sm" />
+                </label>
+                <label class="block">
+                  <span class="text-[9px] text-zinc-400 uppercase">Stok</span>
+                  <input type="number" inputmode="numeric" step="1" min="0" value="${onHand}" data-edit="onhand" data-original="${onHand}"
+                    class="w-full mt-0.5 px-1.5 py-1 rounded-md border border-zinc-200 text-sm" />
+                </label>
+                <label class="block">
+                  <span class="text-[9px] text-zinc-400 uppercase">Sat</span>
+                  <input type="number" inputmode="numeric" step="1" min="0" value="0" data-edit="qty" data-original="0"
+                    class="w-full mt-0.5 px-1.5 py-1 rounded-md border border-emerald-300 bg-emerald-50 text-sm font-semibold" />
+                </label>
+              </div>
             </div>
-            <label class="col-span-2 sm:col-span-1 block">
-              <span class="text-[10px] text-zinc-400">Sıra</span>
-              <input type="number" inputmode="numeric" step="1" min="0" value="${p.order}" data-edit="order" data-original="${p.order}"
-                class="w-full px-2 py-1.5 rounded-lg border border-zinc-200 text-sm" />
-            </label>
-            <label class="col-span-3 sm:col-span-2 block">
-              <span class="text-[10px] text-zinc-400">Alış €</span>
-              <input type="number" inputmode="decimal" step="0.01" min="0" value="${p.buy}" data-edit="buy" data-original="${p.buy}"
-                class="w-full px-2 py-1.5 rounded-lg border border-zinc-200 text-sm" />
-            </label>
-            <label class="col-span-3 sm:col-span-2 block">
-              <span class="text-[10px] text-zinc-400">Satış €</span>
-              <input type="number" inputmode="decimal" step="0.01" min="0" value="${p.sell}" data-edit="sell" data-original="${p.sell}"
-                class="w-full px-2 py-1.5 rounded-lg border border-zinc-200 text-sm" />
-            </label>
-            <label class="col-span-2 sm:col-span-2 block">
-              <span class="text-[10px] text-zinc-400">Stok</span>
-              <input type="number" inputmode="numeric" step="1" min="0" value="${onHand}" data-edit="onhand" data-original="${onHand}"
-                class="w-full px-2 py-1.5 rounded-lg border border-zinc-200 text-sm" />
-            </label>
-            <label class="col-span-2 sm:col-span-1 block">
-              <span class="text-[10px] text-zinc-400">Sat</span>
-              <input type="number" inputmode="numeric" step="1" min="0" value="0" data-edit="qty" data-original="0"
-                class="w-full px-2 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-sm font-semibold" />
-            </label>
           </div>`;
       }).join('');
       refreshBulkSaveButton();
@@ -879,6 +880,27 @@
     }
 
     el('#list-rows').addEventListener('input', refreshBulkSaveButton);
+
+    // Sıra rozeti — odaktan çıkınca anında kaydet + kartlar yeniden sıralansın
+    // (Diğer alanlar Toplu Kaydet ile commit edilir; sıra ise hızlı değişim için anlık.)
+    el('#list-rows').addEventListener('change', (e) => {
+      const inp = e.target;
+      if (!inp.matches || !inp.matches('input[data-edit="order"]')) return;
+      const row = inp.closest('[data-row]');
+      if (!row) return;
+      const p = state.products.find(x => x.id === row.dataset.row);
+      if (!p) return;
+      const newOrder = Math.max(0, Math.floor(Number(inp.value) || 0));
+      if (newOrder === p.order) return;
+      p.order = newOrder;
+      inp.dataset.original = String(newOrder);
+      persist();
+      api.bg(api.call('/products?id=' + encodeURIComponent(p.id), { method: 'PATCH', body: JSON.stringify({ order: newOrder }) }), 'order-save');
+      renderCards();   // anasayfa kartlarını anında yeniden sırala
+      renderList();    // liste de yeni sıraya geçsin
+      refreshBulkSaveButton();
+      toast(`Sıra kaydedildi: ${p.name} → #${newOrder}`, { duration: 1200 });
+    });
 
     function renderExpenses() {
       const host = el('#expenses-list');
