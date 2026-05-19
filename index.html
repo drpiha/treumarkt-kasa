@@ -823,8 +823,11 @@
               class="w-12 h-12 flex-shrink-0 text-center text-base font-bold rounded-full bg-zinc-100 border-2 border-zinc-200 focus:border-emerald-500 focus:bg-white outline-none"
               title="Sıra — küçük rakam = ön sıra" />
             <div class="flex-1 min-w-0">
-              <div class="text-[11px] uppercase text-zinc-400 leading-none">${escapeHtml(p.category)}</div>
-              <div class="font-medium text-sm leading-tight mt-0.5">${escapeHtml(p.name)}</div>
+              <input type="text" value="${escapeHtml(p.category)}" data-edit="category" data-original="${escapeHtml(p.category)}"
+                list="np-category-list"
+                class="w-full text-[11px] uppercase text-zinc-400 leading-none px-1 py-0.5 -mx-1 rounded border border-transparent focus:border-zinc-300 focus:text-zinc-700 outline-none bg-transparent focus:bg-zinc-50" />
+              <input type="text" value="${escapeHtml(p.name)}" data-edit="name" data-original="${escapeHtml(p.name)}"
+                class="w-full font-medium text-sm leading-tight mt-0.5 px-1 py-0.5 -mx-1 rounded border border-transparent focus:border-zinc-300 outline-none bg-transparent focus:bg-zinc-50" />
               <div class="text-[11px] text-zinc-400 mt-0.5">${p.weight} ${p.weight_unit} · satılan: ${sold} ${perKgLbl}</div>
               <div class="grid grid-cols-4 gap-1.5 mt-2">
                 <label class="block">
@@ -852,6 +855,7 @@
           </div>`;
       }).join('');
       refreshBulkSaveButton();
+      refreshCategoryDatalist();
     }
 
     // Tüm input değişikliklerini izle, butonu dinamik göster/gizle + metnini güncelle.
@@ -881,26 +885,56 @@
 
     el('#list-rows').addEventListener('input', refreshBulkSaveButton);
 
-    // Sıra rozeti — odaktan çıkınca anında kaydet + kartlar yeniden sıralansın
-    // (Diğer alanlar Toplu Kaydet ile commit edilir; sıra ise hızlı değişim için anlık.)
+    // "Yapısal" alanlar (sıra, ad, kategori) — odaktan çıkınca anında kaydet
+    // (Fiyat/stok/sat Toplu Kaydet ile commit edilir.)
     el('#list-rows').addEventListener('change', (e) => {
       const inp = e.target;
-      if (!inp.matches || !inp.matches('input[data-edit="order"]')) return;
+      if (!inp.matches) return;
+      const field = inp.dataset.edit;
+      if (!['order','name','category'].includes(field)) return;
       const row = inp.closest('[data-row]');
       if (!row) return;
       const p = state.products.find(x => x.id === row.dataset.row);
       if (!p) return;
-      const newOrder = Math.max(0, Math.floor(Number(inp.value) || 0));
-      if (newOrder === p.order) return;
-      p.order = newOrder;
-      inp.dataset.original = String(newOrder);
+
+      const patch = {};
+      let toastMsg = '';
+      if (field === 'order') {
+        const v = Math.max(0, Math.floor(Number(inp.value) || 0));
+        if (v === p.order) return;
+        p.order = v; patch.order = v;
+        toastMsg = `Sıra: ${p.name} → #${v}`;
+      } else if (field === 'name') {
+        const v = String(inp.value || '').trim();
+        if (!v) { inp.value = p.name; return; }   // boş bırakma — eski adı geri yükle
+        if (v === p.name) return;
+        const oldName = p.name;
+        p.name = v; patch.name = v;
+        toastMsg = `Ad güncellendi: ${oldName} → ${v}`;
+      } else if (field === 'category') {
+        const v = String(inp.value || '').trim() || 'Diğer';
+        if (v === p.category) return;
+        p.category = v; patch.category = v;
+        toastMsg = `Kategori: ${p.name} → ${v}`;
+      }
+
+      inp.dataset.original = String(inp.value);
       persist();
-      api.bg(api.call('/products?id=' + encodeURIComponent(p.id), { method: 'PATCH', body: JSON.stringify({ order: newOrder }) }), 'order-save');
-      renderCards();   // anasayfa kartlarını anında yeniden sırala
-      renderList();    // liste de yeni sıraya geçsin
+      api.bg(api.call('/products?id=' + encodeURIComponent(p.id), {
+        method: 'PATCH', body: JSON.stringify(patch),
+      }), field + '-save');
+      renderCards();                         // ad/kategori kartlarda anında görünsün
+      if (field === 'order') renderList();   // sıra değişti, listeyi de resort
       refreshBulkSaveButton();
-      toast(`Sıra kaydedildi: ${p.name} → #${newOrder}`, { duration: 1200 });
+      toast('✓ ' + toastMsg, { duration: 1400 });
     });
+
+    // Kategori datalist'ini her zaman güncel tut (liste view'daki input'lar için)
+    function refreshCategoryDatalist() {
+      const cats = [...new Set(state.products.map(p => p.category))].sort();
+      const list = el('#np-category-list');
+      if (list) list.innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">`).join('');
+    }
 
     function renderExpenses() {
       const host = el('#expenses-list');
