@@ -139,9 +139,12 @@
       </div>
       <!-- LIST VIEW -->
       <div id="list-view" class="hidden px-2">
-        <div class="px-2 flex items-center justify-between mb-3">
+        <div class="px-2 flex items-center justify-between mb-3 gap-2 flex-wrap">
           <span class="text-[11px] text-zinc-500 uppercase tracking-wide">Sıra · alış · satış · stok · sat</span>
-          <button id="open-newproduct" class="px-3 py-1.5 rounded-xl bg-emerald-600 active:bg-emerald-700 text-white text-sm font-semibold shadow-sm">+ Yeni Ürün</button>
+          <div class="flex gap-2">
+            <button id="open-categories" class="px-3 py-1.5 rounded-xl bg-zinc-100 active:bg-zinc-200 text-zinc-700 text-sm font-medium">Kategoriler</button>
+            <button id="open-newproduct" class="px-3 py-1.5 rounded-xl bg-emerald-600 active:bg-emerald-700 text-white text-sm font-semibold shadow-sm">+ Yeni Ürün</button>
+          </div>
         </div>
         <div id="list-rows" class="divide-y divide-zinc-200 bg-white rounded-2xl overflow-hidden border border-zinc-200"></div>
         <button id="save-bulk" class="hidden w-full mt-3 bg-emerald-600 text-white py-3 rounded-xl font-semibold shadow-sm">Toplu Kaydet</button>
@@ -236,6 +239,21 @@
         <button id="qs-reset" class="qs-chip flex-1 py-3 rounded-xl bg-zinc-100 active:bg-zinc-200 font-semibold text-zinc-500">Sıfırla</button>
       </div>
       <button class="w-full mt-4 py-3 rounded-2xl text-zinc-600 font-medium" data-close>İptal</button>
+    </div>
+  </div>
+
+  <!-- Sheet: Categories — toplu yeniden adlandır -->
+  <div id="categories-sheet" class="fixed inset-0 z-40 hidden">
+    <div class="absolute inset-0 bg-black/40" data-close></div>
+    <div class="absolute inset-x-0 bottom-0 bg-white rounded-t-3xl p-5 pb-7 max-w-screen-md mx-auto max-h-[85vh] flex flex-col">
+      <div class="mx-auto w-10 h-1.5 bg-zinc-300 rounded-full mb-4"></div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold">Kategoriler</h3>
+        <span class="text-xs text-zinc-500" id="cat-count">0 kategori</span>
+      </div>
+      <p class="text-[11px] text-zinc-500 mb-3">Kategori adını değiştirip parmağı kaldır → o kategorideki tüm ürünler güncellenir.</p>
+      <div id="categories-list" class="overflow-y-auto -mx-5 px-5 divide-y divide-zinc-100"></div>
+      <button class="w-full mt-4 py-3 rounded-2xl bg-zinc-900 text-white font-medium" data-close>Kapat</button>
     </div>
   </div>
 
@@ -1188,6 +1206,56 @@
     // Yeni Ürün — sheet aç + datalist'i doldur
     el('#open-newproduct').addEventListener('click', openNewProduct);
     el('#np-save').addEventListener('click', commitNewProduct);
+
+    // Kategoriler — toplu yeniden adlandırma
+    el('#open-categories').addEventListener('click', openCategoriesSheet);
+    el('#categories-list').addEventListener('change', (e) => {
+      const inp = e.target;
+      if (!inp.matches || !inp.matches('input[data-cat-old]')) return;
+      const oldName = inp.dataset.catOld;
+      const newName = String(inp.value || '').trim();
+      if (!newName || newName === oldName) { inp.value = oldName; return; }
+      renameCategoryBulk(oldName, newName);
+    });
+
+    function openCategoriesSheet() {
+      renderCategoriesSheet();
+      openSheet('#categories-sheet');
+    }
+
+    function renderCategoriesSheet() {
+      const map = new Map();
+      state.products.forEach(p => {
+        const cur = map.get(p.category) || 0;
+        map.set(p.category, cur + 1);
+      });
+      const entries = [...map.entries()].sort((a, b) => b[1] - a[1]);
+      el('#cat-count').textContent = `${entries.length} kategori`;
+      el('#categories-list').innerHTML = entries.map(([cat, n]) => `
+        <div class="py-3 flex items-center gap-3">
+          <input type="text" value="${escapeHtml(cat)}" data-cat-old="${escapeHtml(cat)}"
+            class="flex-1 px-3 py-2 rounded-xl border border-zinc-300 focus:border-emerald-500 outline-none text-sm" />
+          <span class="text-xs text-zinc-500 flex-shrink-0">${n} ürün</span>
+        </div>
+      `).join('');
+    }
+
+    function renameCategoryBulk(oldName, newName) {
+      const affected = state.products.filter(p => p.category === oldName);
+      if (affected.length === 0) return;
+      affected.forEach(p => { p.category = newName; });
+      persist();
+      // Her etkilenen ürün için API'ye sync (bulk endpoint yok, her birini PATCH)
+      affected.forEach(p => {
+        api.bg(api.call('/products?id=' + encodeURIComponent(p.id), {
+          method: 'PATCH', body: JSON.stringify({ category: newName }),
+        }), 'cat-rename');
+      });
+      renderCards();
+      renderList();
+      renderCategoriesSheet();   // sheet'i de tazele (sayım + isim güncellensin)
+      toast(`✓ "${oldName}" → "${newName}" · ${affected.length} ürün`, { duration: 2000 });
+    }
 
     function openNewProduct() {
       // Kategori önerileri
