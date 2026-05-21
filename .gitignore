@@ -18,3 +18,5 @@ vercel.json.bak
 node_modules/.prisma/
 node_modules/@prisma/client/
 
+
+.env*.local

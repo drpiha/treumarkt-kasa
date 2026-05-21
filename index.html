@@ -131,6 +131,20 @@
       <div id="recent-sales-strip" class="flex gap-2 overflow-x-auto no-bar -mx-1 px-1 pb-1"></div>
     </section>
 
+    <!-- Product search -->
+    <section class="px-4 mt-3">
+      <div class="relative">
+        <svg viewBox="0 0 24 24" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="product-search" type="search" inputmode="search" enterkeyhint="search"
+          placeholder="Ürün, kategori ara…" autocomplete="off"
+          class="w-full pl-9 pr-9 py-2.5 rounded-xl border border-zinc-200 bg-white focus:border-emerald-500 outline-none text-sm" />
+        <button id="product-search-clear" class="hidden absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-zinc-100 active:bg-zinc-200 text-zinc-600 grid place-items-center" aria-label="Temizle">
+          <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div id="search-meta" class="hidden mt-1.5 px-1 text-[11px] text-zinc-500"></div>
+    </section>
+
     <!-- Product views -->
     <section class="mt-5" id="view-host" data-view="cards">
       <!-- CARDS VIEW -->
@@ -423,36 +437,76 @@
     async function bootCloudSync() {
       if (!location.protocol.startsWith('http')) return; // file:// modu
       try {
-        const remote = await api.call('/state');
+        let remote = await api.call('/state');
         api.enabled = true;
-        const haveLocalProducts = state.products.length > 0;
-        const haveRemoteProducts = (remote.products || []).length > 0;
 
-        if (haveRemoteProducts) {
-          // Bulut otoritedir
+        // 1) İkisi de boşsa: seed
+        if (!(remote.products || []).length && !state.products.length) {
+          await api.call('/seed', { method: 'POST' });
+          remote = await api.call('/state');
           applyRemoteState(remote);
           renderAll();
-        } else if (haveLocalProducts) {
-          // İlk kez bağlanan cihazın elinde data var, bulut boş — yedek yükle
-          toast('☁ Cihazdaki yedek buluta yükleniyor...', { duration: 3000 });
-          await pushLocalToCloud();
-          // Re-fetch to confirm + sync IDs
-          const after = await api.call('/state');
-          applyRemoteState(after);
-          renderAll();
-          toast('☁ Yedekleme tamam');
-        } else {
-          // İkisi de boş — seed
-          await api.call('/seed', { method: 'POST' });
-          const seeded = await api.call('/state');
-          applyRemoteState(seeded);
-          renderAll();
+          return;
         }
+
+        // 2) GÜVENLİ MERGE: localde olup bulutta olmayan her şeyi ÖNCE buluta yükle
+        //    (Aksi halde local kullanıcı verisi cloud authoritative ile silinebilir.)
+        const diff = computeLocalDiff(remote);
+        if (diff.hasAny) {
+          toast('☁ Yerel veriler buluta senkronlanıyor…', { duration: 2200 });
+          await uploadLocalDiff(diff);
+          remote = await api.call('/state');   // refetch
+        }
+
+        // 3) Bulutu otoritatif kabul et (artık tüm local-only veriler yüklendi)
+        applyRemoteState(remote);
+        renderAll();
       } catch (err) {
         if (err.message === 'unauthorized') return;
-        // API yok ya da DB henüz set edilmemiş → LocalStorage-only mod
         console.info('[cloud] mevcut değil, sadece bu cihazda çalışıyoruz:', err.message);
         api.enabled = false;
+      }
+    }
+
+    function computeLocalDiff(remote) {
+      const remoteSaleIds   = new Set((remote.sales    || []).map(s => s.id));
+      const remoteExpIds    = new Set((remote.expenses || []).map(e => e.id));
+      const remoteProdIds   = new Set((remote.products || []).map(p => p.id));
+      const remoteStock     = remote.stockOnHand || {};
+      const remoteTargets   = remote.targets || {};
+
+      const newProducts = state.products.filter(p => !remoteProdIds.has(p.id));
+      const newSales    = state.sales.filter(s => !remoteSaleIds.has(s.id));
+      const newExpenses = state.expenses.filter(e => !remoteExpIds.has(e.id));
+      const stockDiff = {};
+      for (const [pid, q] of Object.entries(state.stockOnHand || {})) {
+        if (Number(q) !== Number(remoteStock[pid] || 0)) stockDiff[pid] = q;
+      }
+      const targetDiffs = [];
+      for (const [m, v] of Object.entries(state.targets || {})) {
+        if (Number(v) !== Number(remoteTargets[m] || 0)) targetDiffs.push({ month: m, amount: v });
+      }
+      const hasAny = newProducts.length || newSales.length || newExpenses.length
+        || Object.keys(stockDiff).length || targetDiffs.length;
+      return { newProducts, newSales, newExpenses, stockDiff, targetDiffs, hasAny };
+    }
+
+    async function uploadLocalDiff(diff) {
+      // Sıra önemli: önce ürünler (sales onlara referans), sonra stok, sonra satış/gider
+      for (const p of diff.newProducts) {
+        try { await api.call('/products', { method: 'POST', body: JSON.stringify(p) }); } catch (_) {}
+      }
+      if (Object.keys(diff.stockDiff).length) {
+        try { await api.call('/stock-on-hand', { method: 'PATCH', body: JSON.stringify(diff.stockDiff) }); } catch (_) {}
+      }
+      if (diff.newSales.length) {
+        try { await api.call('/sales', { method: 'POST', body: JSON.stringify(diff.newSales) }); } catch (_) {}
+      }
+      for (const e of diff.newExpenses) {
+        try { await api.call('/expenses', { method: 'POST', body: JSON.stringify(e) }); } catch (_) {}
+      }
+      for (const t of diff.targetDiffs) {
+        try { await api.call('/targets?month=' + encodeURIComponent(t.month), { method: 'PUT', body: JSON.stringify({ amount: t.amount }) }); } catch (_) {}
       }
     }
 
@@ -673,6 +727,22 @@
     const el = (sel) => document.querySelector(sel);
     const els = (sel) => [...document.querySelectorAll(sel)];
 
+    // Türkçe-uyumlu arama: I/i/ı/İ farkını yok say, diakritikleri normalize et
+    function normTr(s) {
+      return String(s || '')
+        .toLocaleLowerCase('tr-TR')
+        .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+        .replace(/ı/g, 'i').replace(/ş/g,'s').replace(/ğ/g,'g').replace(/ç/g,'c').replace(/ö/g,'o').replace(/ü/g,'u');
+    }
+
+    let searchQuery = '';
+    function visibleProducts() {
+      const all = [...state.products].sort((a,b) => a.order - b.order);
+      if (!searchQuery) return all;
+      const q = normTr(searchQuery);
+      return all.filter(p => normTr(p.name).includes(q) || normTr(p.category).includes(q));
+    }
+
     function renderAll() {
       renderFilterButtons();
       renderSummary();    // also calls renderBI()
@@ -793,7 +863,11 @@
 
     function renderCards() {
       const host = el('#cards-grid');
-      const sorted = [...state.products].sort((a,b) => a.order - b.order);
+      const sorted = visibleProducts();
+      if (sorted.length === 0 && searchQuery) {
+        host.innerHTML = `<div class="col-span-2 text-center text-zinc-400 text-sm py-10">"${escapeHtml(searchQuery)}" için sonuç yok</div>`;
+        return;
+      }
       host.innerHTML = sorted.map(p => {
         const sold = state.inventory[p.id] || 0;
         const perKg = calc.perKgOrLiter(p.sell, p.weight, p.weight_unit);
@@ -828,7 +902,11 @@
 
     function renderList() {
       const host = el('#list-rows');
-      const sorted = [...state.products].sort((a,b) => a.order - b.order);
+      const sorted = visibleProducts();
+      if (sorted.length === 0 && searchQuery) {
+        host.innerHTML = `<div class="p-6 text-center text-zinc-400 text-sm">"${escapeHtml(searchQuery)}" için sonuç yok</div>`;
+        return;
+      }
       host.innerHTML = sorted.map(p => {
         const sold = state.inventory[p.id] || 0;
         const onHand = state.stockOnHand[p.id] || 0;
@@ -1533,6 +1611,32 @@
       if (stockChanges)  parts.push(`${stockChanges} stok`);
       if (orderChanges)  parts.push(`${orderChanges} sıra`);
       toast(parts.length ? parts.join(' · ') + ' güncellendi' : 'Değişiklik yok');
+    });
+
+    /* -------------------- SEARCH -------------------- */
+    function updateSearchMeta() {
+      const all = state.products.length;
+      const matched = visibleProducts().length;
+      const meta = el('#search-meta');
+      if (!searchQuery) { meta.classList.add('hidden'); return; }
+      meta.classList.remove('hidden');
+      meta.textContent = `${matched} / ${all} ürün eşleşti`;
+    }
+    el('#product-search').addEventListener('input', (e) => {
+      searchQuery = String(e.target.value || '').trim();
+      el('#product-search-clear').classList.toggle('hidden', !searchQuery);
+      updateSearchMeta();
+      renderCards();
+      renderList();
+    });
+    el('#product-search-clear').addEventListener('click', () => {
+      searchQuery = '';
+      el('#product-search').value = '';
+      el('#product-search-clear').classList.add('hidden');
+      updateSearchMeta();
+      renderCards();
+      renderList();
+      el('#product-search').focus();
     });
 
     /* -------------------- LOGIN OVERLAY EVENTS -------------------- */
