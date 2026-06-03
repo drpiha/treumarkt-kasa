@@ -868,6 +868,16 @@
       return { today:'Bugün', week:'Bu Hafta', month:'Bu Ay', all:'Tüm Zamanlar', custom:'Özel Aralık' }[p] || '';
     }
 
+    // Kartlarda gösterilen "satılan" = SADECE bugün satılan adet (günlük).
+    // state.inventory tüm-zaman toplamıdır; liste/yönetim görünümü onu kullanmaya devam eder.
+    function soldTodayCount(productId) {
+      const start = calc.startOfDay().getTime();
+      return state.sales.reduce(
+        (n, s) => (s.productId === productId && new Date(s.ts).getTime() >= start) ? n + 1 : n,
+        0,
+      );
+    }
+
     function renderCards() {
       const host = el('#cards-grid');
       const sorted = visibleProducts();
@@ -876,7 +886,7 @@
         return;
       }
       host.innerHTML = sorted.map(p => {
-        const sold = state.inventory[p.id] || 0;
+        const sold = soldTodayCount(p.id);
         const perKg = calc.perKgOrLiter(p.sell, p.weight, p.weight_unit);
         const unitLbl = p.weight_unit === 'adet' ? `${p.weight} adet` : `${p.weight} ${p.weight_unit}`;
         const subPerKg = perKg ? `· ${fmtEUR.format(perKg)}/${p.weight_unit === 'g' ? 'kg' : 'L'}` : '';
@@ -893,7 +903,7 @@
                   <div class="text-[10px] text-zinc-400">${unitLbl} ${subPerKg}</div>
                 </div>
                 <div class="text-right">
-                  <div class="text-[10px] text-zinc-400">satılan</div>
+                  <div class="text-[10px] text-zinc-400">bugün satılan</div>
                   <div class="text-sm font-medium">${sold}</div>
                 </div>
               </div>
@@ -1171,7 +1181,7 @@
       flashSaleBurst(cardEl);
       // partial re-render
       const soldEl = cardEl.querySelector('.text-sm.font-medium');
-      if (soldEl) soldEl.textContent = state.inventory[p.id];
+      if (soldEl) soldEl.textContent = soldTodayCount(p.id);
       renderSummary();
       toastWithUndo(`✓ ${p.name} · ${fmtEUR.format(p.sell)}`, () => undoSale(sale.id, cardEl));
     }
@@ -1182,7 +1192,7 @@
       persist();
       if (cardEl) {
         const soldEl = cardEl.querySelector('.text-sm.font-medium');
-        if (soldEl) soldEl.textContent = state.inventory[removed.productId] || 0;
+        if (soldEl) soldEl.textContent = soldTodayCount(removed.productId);
       }
       renderSummary();
       toast(`↺ Satış geri alındı: ${removed.productName}`);
